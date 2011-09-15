@@ -28,6 +28,8 @@
 #include <linux/mISDNhw.h>
 #include "xhfc24sucd.h"
 
+extern const char *xhfc_su_rev;
+
 #define DRIVER_NAME "XHFC"
 
 #ifndef CHIP_ID_2S4U
@@ -71,12 +73,11 @@
 
 
 /* NT / TE defines */
-#define NT_T1_COUNT	250	/* number of 4ms interrupts for G2 timeout */
+#define NT_T1_COUNT	25	/* number of 4ms interrupts for G2 timeout */
 #define CLK_DLY_TE	0x0e	/* CLKDEL in TE mode */
 #define CLK_DLY_NT	0x6c	/* CLKDEL in NT mode */
 #define STA_ACTIVATE	0x60	/* start activation   in A_SU_WR_STA */
 #define STA_DEACTIVATE	0x40	/* start deactivation in A_SU_WR_STA */
-#define STA_LOAD	0x10	/* load state in A_SU_WR_STA */
 #define LIF_MODE_NT	0x04	/* Line Interface NT mode */
 #define XHFC_TIMER_T3	8000	/* 8s activation timer T3 */
 #define XHFC_TIMER_T4	500	/* 500ms deactivation timer T4 */
@@ -89,6 +90,7 @@
 #define L1_TESTLOOP_B1		0x04
 #define L1_TESTLOOP_B2		0x05
 #define L1_TESTLOOP_D		0x06
+#define L1_TESTLOOP_OFF		0x07
 
 
 /* xhfc Layer1 Flags (stored in xhfc_port_t->l1_flags) */
@@ -116,7 +118,6 @@
 #define DEFAULT_TRANSP_BURST_SZ 128
 
 
-struct xhfc_port;
 struct xhfc_pi;
 struct xhfc;
 
@@ -149,16 +150,18 @@ struct port {
 	__u8 st_ctrl3;
 };
 
+struct fpga_exp_card_device;
+
 /* hardware structure */
 struct xhfc {
-	struct xhfc_pi * pi;		/* backpointer to xhfc_pi */
+	struct xhfc_pi *pi;		/* backpointer to xhfc_pi */
 	struct port *port;		/* one for each Line interface */
-	char name[15];		/* XHFC_PI0_0 = PI no 0, XHFC no 0 */
+	struct fpga_exp_card_device *exp_card_device;
+	struct workqueue_struct *workqueue;
+	char name[20];		/* XHFC_PI0_0 = PI no 0, XHFC no 0 */
 	__u8 chipnum;		/* global chip no */
 	__u8 chipidx;		/* index in pi->xhfcs[NUM_XHFCS] */
 	__u8 param_idx;		/* used to access module param arrays */
-
-	spinlock_t lock;
 	struct tasklet_struct tasklet;	/* interrupt bottom half */
 
 	__u8 testirq;
@@ -181,6 +184,8 @@ struct xhfc {
 	__u8 ti_wd;		/* timer interval */
 	__u8 pcm_md0;
 	__u8 pcm_md1;
+	__u8 pcm_md2;
+	int pcm;		/* Set from module parameter pcm */
 
 	__u32 fifo_irq;		/* fifo bl irq */
 	__u32 fifo_irqmsk;	/* fifo bl irq */
@@ -190,10 +195,11 @@ struct xhfc {
 /*
  * interface prototypes exportet for PI implementation, e.g. xhfc_pci2pi
  */
-int setup_instance(struct xhfc *hw, struct device *parent);
+int xhfc_su_setup_instance(struct xhfc *hw, struct device *parent);
 int release_instance(struct xhfc *hw);
 void enable_interrupts(struct xhfc *xhfc);
 void disable_interrupts(struct xhfc *xhfc);
 irqreturn_t xhfc_interrupt(int intno, void *dev_id);
+irqreturn_t xhfc_su_irq_handler(struct xhfc *xhfc);
 
 #endif /* _XHFC_SU_H_ */

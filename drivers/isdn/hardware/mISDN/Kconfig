@@ -40,10 +40,28 @@ config MISDN_HFCUSB
 	  HFC-S USB ISDN Controller
 
 config MISDN_XHFC
-	tristate "Support for XHFC PCI2PI evalboard"
-	depends on PCI
+	tristate "Support for XHFC"
 	help
-	  Enable support for Cologne Chips AG's XHFC Evaluation Card
+	  Enable support for Cologne Chips AG's XHFC based hardware
+
+config MISDN_XHFC_PCI2PI
+	depends on MISDN_XHFC
+	boolean "IO Mode via PCI to SPI driver
+	help
+	  Enable XHFC IO via PCI to SPI driver
+
+config MISDN_XHFC_SPI
+	depends on MISDN_XHFC
+	boolean "IO Mode via SPI driver
+	help
+	  Enable XHFC IO via SPI driver
+
+config MISDN_XHFC_FPGA
+	depends on MISDN_XHFC
+	boolean "IO Mode via FPGA driver
+	help
+	  Enable XHFC IO via FPGA driver
+
 
 config MISDN_AVMFRITZ
 	tristate "Support for AVM FRITZ!CARD PCI"

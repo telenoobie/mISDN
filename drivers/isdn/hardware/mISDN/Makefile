@@ -26,3 +26,8 @@ xhfc-objs := xhfc_su.o xhfc_pci2pi.o
 
 mISDN_hwskel-objs := hwskel.o
 mISDN_l1loop-objs := l1loop.o
+
+ifdef CONFIG_MISDN_XHFC_FPGA
+ EXTRA_CFLAGS += $(FPGA_CFLAGS)
+ xhfc-objs += xhfc_fpga.o
+endif
