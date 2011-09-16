@@ -1739,6 +1739,19 @@ receive_buffer:
 				return;
 			}
 		}
+
+		if(rcnt > ((*rx_skb)->end - (*rx_skb)->tail)) {
+		/* limit amount of data to be read from FIFO */
+			printk(KERN_WARNING "%s: %s channel %d; rx_skb overflow.  size(%d) < len(%d) + rcnt(%d)\n",
+			       __FUNCTION__,
+			       xhfc->name,
+			       channel,
+			     (*rx_skb)->end - (*rx_skb)->data,
+			     (*rx_skb)->len,
+			       rcnt);
+			rcnt = ((*rx_skb)->end - (*rx_skb)->tail);
+		}
+
 		data = skb_put(*rx_skb, rcnt);
 
 		/* read data from FIFO */
