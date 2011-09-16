@@ -15,21 +15,96 @@
 
 typedef struct xhfc xhfc_t;
 
-extern __u8  read_xhfc(
-               xhfc_t *xhfc,
-                 __u8  reg_addr);
 
-extern void  write_xhfc(
-                xhfc_t *xhfc,
-                  __u8  reg_addr,
-                  __u8  value);
+extern int  xhfc_reg_read(
+                  xhfc_t *xhfc,
+              __u8 const *reg_addr,
+                    __u8 *ipValues,
+                unsigned  ivCount);
 
 
-static inline __u8  sread_xhfc(
+extern int  xhfc_reg_write(
+                   xhfc_t *xhfc,
+               __u8 const *reg_addr,
+                     __u8 *ipValues,
+                 unsigned  ivCount);
+
+extern int  xhfc_array_read(
+                    xhfc_t *xhfc,
+                __u8 const  reg_addr,
+                      __u8 *ipValues,
+                  unsigned  ivCount);
+
+
+extern int  xhfc_array_write(
+                     xhfc_t *xhfc,
+                 __u8 const  reg_addr,
+                       __u8 *ipValues,
+                   unsigned  ivCount);
+
+
+static inline __u8  xhfc_read(
+                      xhfc_t *xhfc,
+                        __u8  reg_addr)
+{
+    __u8  lvValue;
+
+    xhfc_reg_read(xhfc,
+                 &reg_addr,
+                 &lvValue,
+                  1);
+
+    return(lvValue);
+}
+
+
+static inline void  xhfc_write(
+                       xhfc_t *xhfc,
+                         __u8  reg_addr,
+                         __u8  value)
+{
+    xhfc_reg_write(xhfc,
+                  &reg_addr,
+                  &value,
+                   1);
+
+    return;
+}
+
+
+static inline void  xhfc_read32(
+                        xhfc_t *xhfc,
+                          __u8  reg_addr,
+                          __u8 *ipData)
+{
+    xhfc_array_read(xhfc,
+                    reg_addr,
+                    ipData,
+                    1);
+
+    return;
+}
+
+
+static inline void  xhfc_write32(
+                         xhfc_t *xhfc,
+                           __u8  reg_addr,
+                           __u8 *ipData)
+{
+    xhfc_array_write(xhfc,
+                     reg_addr,
+                     ipData,
+                     1);
+
+    return;
+}
+
+
+static inline __u8  xhfc_sread(
                        xhfc_t *xhfc,
                          __u8  reg_addr)
 {
-    return(read_xhfc(xhfc,
+    return(xhfc_read(xhfc,
                      reg_addr));
 }
 

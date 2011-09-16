@@ -4,6 +4,7 @@
  */
 
 #include <linux/module.h>
+#include <asm/semaphore.h>
 #include "xhfc_su.h"
 #include "xhfc_fpga.h"
 
@@ -80,310 +81,568 @@ static xhfc_t *xhfc_array[MAX_EXP_CARD_DEVICES];
 
 
 
-__u8  read_xhfc(
-        xhfc_t *xhfc,
-          __u8  reg_addr)
-/*
- * This function reads a single byte from the xhfc device
- *
- * Two transactions required.
- *
- * 1st transaction - write the register value that we want to read.
- *
- * 2nd transaction - read the data. Control byte is written followed
- * by a read of one byte.
- *
- * Both transactions are done at the same time i.e. within the same
- * chip select.
- */
+inline  void xhfc_PrintBuffer(
+               unsigned char *ipBuffer,
+                    unsigned  ivLength)
 {
-#ifdef XHFC_DEBUG
-    unsigned  i;
-#endif /* XHFC_DEBUG */
-    unsigned char  Buffer[8];
-    unsigned char *const buf = Buffer + 1;
+    unsigned lvIndex;
 
-#ifdef XHFC_DEBUG
-    printk(KERN_INFO "%s 0x%02x\n", __FUNCTION__, reg_addr);
-#endif /* XHFC_DEBUG */
-
-    // Write the length into the buffer...
-    buf[-1] = READ_BYTE_BUF_LEN;
-
-    // Set-up the control byte to write to a single register address.
-    buf[REG_CONTROL_BYTE] = SPI_WR | SPI_ADDR | SPI_NO_BROAD | XHFC_DEVICE_ID;
-
-    // Set-up the register we want to read from.
-    buf[REG_ADDR_BYTE] = reg_addr;
-
-    // Now set-up the buffer with the new register value.
-    buf[DATA_CONTORL_BYTE] = SPI_RD | SPI_DATA | SPI_NO_MULTI | XHFC_DEVICE_ID;
-
-    buf[DATA_START_BYTE] = 0;
-
-
-#ifdef XHFC_DEBUG
-    printk(KERN_INFO "Sending Data: \n");
-    // Only print the first bytes as the last byte is the buffer
-    // for the return data.
-    for(i = 0;
-        i < READ_BYTE_BUF_LEN - 1;
-        i++)
+    printk(KERN_INFO);
+    for(lvIndex = 0;
+        lvIndex < ivLength;
+        lvIndex++)
     {
-        printk(KERN_INFO "Byte %d - 0x%02x\n", i + 1, buf[i]);
+        if(lvIndex && !(lvIndex % 8))
+            printk("\n" KERN_INFO);
+        printk("0x%2.2X, ", ipBuffer[lvIndex]);
     }
-#endif /* XHFC_DEBUG */
+    printk("\n");
+}
 
-    // Now transmit the first 3 bytes in the buffer to the chip.
-    // The 4th byte will be used to buffer the data returned from
-    // the xhfc chip
+
+inline  unsigned  xhfc_reg_append_addr(
+                       unsigned char *ipBuffer,
+                            unsigned  ivAvailable,
+                                __u8  reg_addr)
+{
+    if(ivAvailable < 2)
+        return(0);
+
+    ipBuffer[0] = SPI_WR | SPI_ADDR | SPI_NO_BROAD | XHFC_DEVICE_ID;
+    ipBuffer[1] = reg_addr;
+
+
+    return(2);
+}
+
+
+inline  unsigned  xhfc_reg_append_read(
+                       unsigned char *ipBuffer,
+                            unsigned  ivAvailable,
+                                __u8  ivValue)
+{
+    if(ivAvailable < 2)
+        return(0);
+
+    ipBuffer[0] = SPI_RD | SPI_DATA | SPI_NO_MULTI;
+    ipBuffer[1] = ivValue;
+
+
+    return(2);
+}
+
+
+inline  unsigned  xhfc_reg_append_write(
+                        unsigned char *ipBuffer,
+                             unsigned  ivAvailable,
+                                 __u8  ivValue)
+{
+    if(ivAvailable < 2)
+        return(0);
+
+    ipBuffer[0] = SPI_WR | SPI_DATA | SPI_NO_MULTI;
+    ipBuffer[1] = ivValue;
+
+
+    return(2);
+}
+
+
+inline  unsigned  xhfc_reg_append_read32(
+                         unsigned char *ipBuffer,
+                              unsigned  ivAvailable,
+                                  __u8 *iaValue)
+{
+    if(ivAvailable < 5)
+        return(0);
+
+    ipBuffer[0] = SPI_RD | SPI_DATA | SPI_MULTI;
+    ipBuffer[1] = iaValue[0];
+    ipBuffer[2] = iaValue[1];
+    ipBuffer[3] = iaValue[2];
+    ipBuffer[4] = iaValue[3];
+
+
+    return(5);
+}
+
+
+inline  unsigned  xhfc_reg_append_write32(
+                          unsigned char *ipBuffer,
+                               unsigned  ivAvailable,
+                                   __u8 *iaValue)
+{
+    if(ivAvailable < 5)
+        return(0);
+
+    ipBuffer[0] = SPI_WR | SPI_DATA | SPI_MULTI;
+    ipBuffer[1] = iaValue[0];
+    ipBuffer[2] = iaValue[1];
+    ipBuffer[3] = iaValue[2];
+    ipBuffer[4] = iaValue[3];
+
+
+    return(5);
+}
+
+
+inline  unsigned  xhfc_reg_build_read(
+                       unsigned char *ipBuffer,
+                            unsigned  ivAvailable,
+                                __u8  reg_addr,
+                                __u8  value)
+{
+    unsigned  lvOffset = 0;
+
+    lvOffset += xhfc_reg_append_addr(ipBuffer + lvOffset,
+                                     ivAvailable - lvOffset,
+                                     reg_addr);
+
+    lvOffset += xhfc_reg_append_read(ipBuffer + lvOffset,
+                                     ivAvailable - lvOffset,
+                                     value);
+
+    return(lvOffset);
+}
+
+
+inline  unsigned  xhfc_reg_build_write(
+                        unsigned char *ipBuffer,
+                             unsigned  ivAvailable,
+                                 __u8  reg_addr,
+                                 __u8  value)
+{
+    unsigned  lvOffset = 0;
+
+    lvOffset += xhfc_reg_append_addr(ipBuffer + lvOffset,
+                                     ivAvailable - lvOffset,
+                                     reg_addr);
+
+    lvOffset += xhfc_reg_append_write(ipBuffer + lvOffset,
+                                      ivAvailable - lvOffset,
+                                      value);
+
+    return(lvOffset);
+}
+
+
+inline  unsigned  xhfc_reg_build_read32(
+                       unsigned char *ipBuffer,
+                            unsigned  ivAvailable,
+                                __u8  reg_addr,
+                                __u8 *pValue)
+{
+    unsigned  lvOffset = 0;
+
+    lvOffset += xhfc_reg_append_addr(ipBuffer + lvOffset,
+                                     ivAvailable - lvOffset,
+                                     reg_addr);
+
+    lvOffset += xhfc_reg_append_read32(ipBuffer + lvOffset,
+                                       ivAvailable - lvOffset,
+                                       pValue);
+
+    return(lvOffset);
+}
+
+
+inline  unsigned  xhfc_reg_build_write32(
+                        unsigned char *ipBuffer,
+                             unsigned  ivAvailable,
+                                 __u8  reg_addr,
+                                 __u8 *pValue)
+{
+    unsigned  lvOffset = 0;
+
+    lvOffset += xhfc_reg_append_addr(ipBuffer + lvOffset,
+                                     ivAvailable - lvOffset,
+                                     reg_addr);
+
+    lvOffset += xhfc_reg_append_write32(ipBuffer + lvOffset,
+                                        ivAvailable - lvOffset,
+                                        pValue);
+
+    return(lvOffset);
+}
+
+
+int  xhfc_reg_read(
+           xhfc_t *xhfc,
+       __u8 const *reg_addr,
+             __u8 *ipValues,
+         unsigned  ivCount)
+{
+    unsigned  lvOffset;
+    unsigned  lvIndex;
+    unsigned char  lpBuffer[55];
+
+
+    lvOffset = 1;
+    for(lvIndex = 0;
+        lvIndex < ivCount;
+        lvIndex++)
+    {
+        unsigned  lvAppended;
+
+        lvAppended = xhfc_reg_build_read(lpBuffer + lvOffset,
+                                         sizeof(lpBuffer) - lvOffset,
+                                         reg_addr[lvIndex],
+                                         ipValues[lvIndex]);
+        if(!lvAppended)
+            return(-1);
+
+        lvOffset += lvAppended;
+    }
+
+    lpBuffer[0] = lvOffset - 1;
+
+
     if(fpga_write_wait(xhfc->exp_card_device,
                        0,
-                       Buffer,
-                       READ_BYTE_BUF_LEN + 1) < 0)
-        printk(KERN_WARNING "%s:%d: Oh Shite...\n", __FUNCTION__, __LINE__);
-    else
+                       lpBuffer,
+                       lvOffset) < 0)
+        return(-1);
+
+    if(fpga_read(xhfc->exp_card_device,
+                 0,
+                 lpBuffer,
+                 lvOffset) < 0)
+        return(-1);
+
+
+    for(lvIndex = 0;
+        lvIndex < ivCount;
+        lvIndex++)
     {
-        if(fpga_read(xhfc->exp_card_device,
-                     0,
-                     Buffer,
-                     8) < 0)
-            printk(KERN_WARNING "%s:%d: fpga_read failed\n", __FUNCTION__, __LINE__);
+        ipValues[lvIndex] = lpBuffer[1 + (lvIndex * READ_BYTE_BUF_LEN) + DATA_START_BYTE];
     }
 
 
-    return(buf[DATA_START_BYTE]);
+    return(0);
 }
 
 
-void  write_xhfc(
-         xhfc_t *xhfc,
-           __u8  reg_addr,
-           __u8  value)
-/*
- * Two transactions required.
- *
- * 1st transaction - write the control byte followed by the
- * register address that we want to write to.
- * Example - reg address 0x13
- * 0100 0000 0001 0010
- * The first 8 bits are contol bits and the last 8 are the register
- * value.
- *
- * 2nd transaction - send the new register value with the
- * contol bits set to 0000 0000.
- *
- * Both transactions are done at the same time i.e. within the same
- * chip select.
- */
+int  xhfc_reg_write(
+            xhfc_t *xhfc,
+        __u8 const *reg_addr,
+              __u8 *ipValues,
+          unsigned  ivCount)
 {
-#ifdef XHFC_DEBUG
-    unsigned  i;
-#endif /* XHFC_DEBUG */
-    unsigned char  Buffer[8];
-    unsigned char *const buf = Buffer + 1;
+    unsigned  lvOffset;
+    unsigned  lvIndex;
+    unsigned char  lpBuffer[55];
 
-#ifdef XHFC_DEBUG
-    printk(KERN_INFO "%s reg:0x%02x val:0x%02x\n", __FUNCTION__, reg_addr, value);
-#endif /* XHFC_DEBUG */
 
-    // Write the length into the buffer...
-    buf[-1] = WRITE_BYTE_BUF_LEN;
-
-    // Set-up the control byte to write to a single register address.
-    buf[REG_CONTROL_BYTE] = SPI_WR | SPI_ADDR | SPI_NO_BROAD | XHFC_DEVICE_ID;
-
-    // Set the register value to write.
-    buf[REG_ADDR_BYTE] = reg_addr;
-
-    // Now set-up the buffer with the new register value.
-    buf[DATA_CONTORL_BYTE] = SPI_WR | SPI_DATA | SPI_NO_MULTI | XHFC_DEVICE_ID;
-
-    // Set the data to be written
-    buf[DATA_START_BYTE] = value;
-
-#ifdef XHFC_DEBUG
-    printk(KERN_INFO "Sending Data:\n");
-    // Print all data that will be sent to the xhfc chip.
-    for(i = 0;
-        i < WRITE_BYTE_BUF_LEN;
-        i++)
+    lvOffset = 1;
+    for(lvIndex = 0;
+        lvIndex < ivCount;
+        lvIndex++)
     {
-        printk(KERN_INFO "Byte %d - 0x%02x\n", i + 1, buf[i]);
-    }
-#endif /* XHFC_DEBUG */
+        unsigned  lvAppended;
 
-    // Write the data
+        lvAppended = xhfc_reg_build_write(lpBuffer + lvOffset,
+                                          sizeof(lpBuffer) - lvOffset,
+                                          reg_addr[lvIndex],
+                                          ipValues[lvIndex]);
+        if(!lvAppended)
+            return(-1);
+
+        lvOffset += lvAppended;
+    }
+
+    lpBuffer[0] = lvOffset - 1;
+
+
     if(fpga_write(xhfc->exp_card_device,
                   0,
-                  Buffer,
-                  WRITE_BYTE_BUF_LEN + 1) < 0)
-        printk(KERN_WARNING "%s:%d: Oh Shite...\n", __FUNCTION__, __LINE__);
+                  lpBuffer,
+                  lvOffset) < 0)
+        return(-1);
 
 
-    return;
+    return(0);
 }
 
-static void
-xhfc_irq_callback(struct fpga_exp_card_device *exp_card_device)
+
+int  xhfc_array_read(
+             xhfc_t *xhfc,
+         __u8 const  reg_addr,
+               __u8 *ipValues,
+           unsigned  ivCount)
+/* returns the number of words atually read */
 {
-	struct xhfc *xhfc;
+    unsigned  lvOffset;
+    unsigned  lvIndex, lvI;
+    unsigned char  lpBuffer[55];
 
-	if (!exp_card_device)
-		printk(KERN_WARNING "%s: No Device\n", __func__);
-	else if (!exp_card_device->parent_exp_card)
-		printk(KERN_WARNING "%s: Orphan Device\n", __func__);
-	else if (!xhfc_array[exp_card_device->parent_exp_card->slot_number])
-		printk(KERN_WARNING "%s: Device not registered\n",
-			__func__);
-	else {
-		xhfc = xhfc_array[exp_card_device->parent_exp_card->slot_number];
-		if (GET_V_GLOB_IRQ_EN(xhfc->irq_ctrl)
-		    && (read_xhfc(xhfc, R_IRQ_OVIEW))) {
-		        /* Call the handler */
-			xhfc_su_irq_handler(xhfc);
-		} else
-			printk(KERN_WARNING "%s got spurious interrupt\n",
-				xhfc->name);
-	}
+
+    lvOffset = 1;
+    lvIndex = 0;
+
+    while(lvIndex < ivCount)
+    {
+        unsigned  lvAppended;
+
+        lvAppended = xhfc_reg_build_read32(lpBuffer + lvOffset,
+                                           sizeof(lpBuffer) - lvOffset,
+                                           reg_addr,
+                                           ipValues + (lvIndex * 4));
+        if(!lvAppended)
+            break;
+
+        lvOffset += lvAppended;
+        lvIndex += 1;
+    }
+
+    lpBuffer[0] = lvOffset - 1;
+
+
+    if(fpga_write_wait(xhfc->exp_card_device,
+                       0,
+                       lpBuffer,
+                       lvOffset) < 0)
+        return(-1);
+
+    if(fpga_read(xhfc->exp_card_device,
+                 0,
+                 lpBuffer,
+                 lvOffset) < 0)
+        return(-1);
+
+
+    lvI = 0;
+    while(lvI < lvIndex)
+    {
+        memcpy(ipValues +     (lvI * 4),
+               lpBuffer + 1 + (lvI * 4) + DATA_START_BYTE,
+               4);
+
+        lvI += 1;
+    }
+
+    return(lvIndex);
 }
+
+
+int  xhfc_array_write(
+              xhfc_t *xhfc,
+          __u8 const  reg_addr,
+                __u8 *ipValues,
+            unsigned  ivCount)
+/* returns the number of words atually written */
+{
+    unsigned  lvOffset;
+    unsigned  lvIndex;
+    unsigned char  lpBuffer[55];
+
+
+    lvOffset = 1;
+    lvIndex = 0;
+
+    while(lvIndex < ivCount)
+    {
+        unsigned  lvAppended;
+
+        lvAppended = xhfc_reg_build_write32(lpBuffer + lvOffset,
+                                            sizeof(lpBuffer) - lvOffset,
+                                            reg_addr,
+                                            ipValues + (lvIndex * 4));
+        if(!lvAppended)
+            return(-1);
+
+        lvOffset += lvAppended;
+        lvIndex += 1;
+    }
+
+    lpBuffer[0] = lvOffset - 1;
+
+
+    if(fpga_write(xhfc->exp_card_device,
+                  0,
+                  lpBuffer,
+                  lvOffset) < 0)
+        return(-1);
+
+
+    return(lvIndex);
+}
+
+
+static void  xhfc_irq_callback(
+  struct fpga_exp_card_device *exp_card_device)
+{
+    if(!exp_card_device)
+        printk(KERN_WARNING "%s: No Device\n", __func__);
+    else if(!exp_card_device->parent_exp_card)
+        printk(KERN_WARNING "%s: Orphan Device\n", __func__);
+    else if(!xhfc_array[exp_card_device->parent_exp_card->slot_number])
+        printk(KERN_WARNING "%s: Device not registered\n",
+            __func__);
+    else
+    {
+        /* Call the handler */
+        xhfc_su_irq_handler(xhfc_array[exp_card_device->parent_exp_card->slot_number]);
+    }
+}
+
 
 static int xhfc_probe(struct device *dev)
 {
-	struct fpga_exp_card_device *exp_card_device;
-	xhfc_t *xhfc;
-	char wq_name[20];
+    struct fpga_exp_card_device *exp_card_device;
+    xhfc_t *xhfc;
+    char wq_name[20];
 
-	exp_card_device = get_device_struct_ref_from_dev(dev);
-	printk(KERN_INFO "%s called dev %p exp_card_device %p\n", __func__,
-		dev, exp_card_device);
-	if (!exp_card_device)
-		return -1;
+    if(!dev)
+        return(-1);
 
-	if (exp_card_device->device_type != DEV_COLOGNE) {
-		release_device_struct_ref(exp_card_device);
-		return -1;
-	}
+    exp_card_device = device_to_fpga_exp_card_device(dev);
+    printk(KERN_INFO "%s called dev %p exp_card_device %p\n", __func__,
+        dev, exp_card_device);
+    if(!exp_card_device)
+        return(-ENODEV);
 
-	if (!exp_card_device->parent_exp_card) {
-		printk(KERN_WARNING "%s called for orphan device!\n",
-		       __func__);
+    if(exp_card_device->device_type != DEV_COLOGNE)
+    {
+        printk(KERN_WARNING "%s called for Non XHFC device!\n", __FUNCTION__);
+        return(-EINVAL);
+    }
 
-		release_device_struct_ref(exp_card_device);
-		return -1;
-	}
+    if(!exp_card_device->parent_exp_card)
+    {
+        printk(KERN_WARNING "%s called for orphan device!\n",
+               __func__);
+        return(-ENOENT);
+    }
 
-	if (xhfc_array[exp_card_device->parent_exp_card->slot_number]) {
-		printk(KERN_WARNING
-		       "%s: already managing a device on slot %d\n",
-		       __func__, exp_card_device->parent_exp_card->slot_number);
+    if(exp_card_device->parent_exp_card->slot_number > MAX_EXP_CARD_DEVICES)
+    {
+        printk(KERN_WARNING "%s: illegal slot number %d\n",
+               __FUNCTION__,
+               exp_card_device->parent_exp_card->slot_number);
+        return(-EINVAL);
+    }
 
-		release_device_struct_ref(exp_card_device);
-		return -1;
-	}
+    if(xhfc_array[exp_card_device->parent_exp_card->slot_number])
+    {
+        printk(KERN_WARNING
+               "%s: already managing a device on slot %d\n",
+               __func__, exp_card_device->parent_exp_card->slot_number);
+        return(-1);
+    }
 
-	xhfc = kzalloc(sizeof(xhfc_t), GFP_KERNEL);
-	if (!xhfc) {
-		printk(KERN_ERR "%s:%d No memory available\n", __func__,
-		       __LINE__);
+    if(!get_device(dev))
+        return(-ENODEV);
 
-		release_device_struct_ref(exp_card_device);
-		return -1;
-	}
+    xhfc = kzalloc(sizeof(xhfc_t), GFP_KERNEL);
+    if(!xhfc)
+    {
+        printk(KERN_ERR "%s:%d No memory available\n", __func__,
+               __LINE__);
 
-	snprintf(xhfc->name, sizeof(xhfc->name), "xhfc.%d", exp_card_device->parent_exp_card->slot_number);
-	snprintf(wq_name,
-		 sizeof(wq_name),
-		 "xhfc-wq(%d)", exp_card_device->parent_exp_card->slot_number);
-	xhfc->workqueue = create_singlethread_workqueue(wq_name);
+        put_device(dev);
+        return(-ENOMEM);
+    }
 
-	xhfc_array[exp_card_device->parent_exp_card->slot_number] = xhfc;
-	xhfc->chipidx = exp_card_device->parent_exp_card->slot_number;
-	xhfc->exp_card_device = exp_card_device;
+    snprintf(xhfc->name, sizeof(xhfc->name), "xhfc.%d", exp_card_device->parent_exp_card->slot_number);
+    snprintf(wq_name,
+         sizeof(wq_name),
+         "xhfc-wq(%d)", exp_card_device->parent_exp_card->slot_number);
+    xhfc->workqueue = create_singlethread_workqueue(wq_name);
 
-	exp_card_device->irq_enable_reg = INT_ENABLE_REG1;
-	exp_card_device->irq_enable_bit = 0xFF;
-	fpga_irq_enable(exp_card_device);
+    INIT_WORK(&xhfc->bh_handler_workstructure,
+              xhfc_bh_handler_workfunction);
 
-	if (xhfc_su_setup_instance(xhfc, dev)) {
-		printk(KERN_WARNING "%s: failed to set-up xhfc instance %s\n",
-		       __func__, xhfc->name);
-		xhfc_array[exp_card_device->parent_exp_card->slot_number] =
-			NULL;
-		kfree(xhfc);
-		return -EIO;
-	}
+    xhfc_array[exp_card_device->parent_exp_card->slot_number] = xhfc;
+    xhfc->chipidx = exp_card_device->parent_exp_card->slot_number;
+    xhfc->exp_card_device = exp_card_device;
 
-	printk(KERN_INFO "%s called successfully for device in slot %d\n",
-	       __func__, exp_card_device->parent_exp_card->slot_number);
+    fpga_irq_enable(exp_card_device);
 
-	return 0;
+    if(xhfc_su_setup_instance(xhfc, dev))
+    {
+        printk(KERN_WARNING "%s: failed to set-up xhfc instance %s\n",
+               __func__, xhfc->name);
+        xhfc_array[exp_card_device->parent_exp_card->slot_number] = NULL;
+        kfree(xhfc);
+        put_device(dev);
+        return(-EIO);
+    }
+
+    printk(KERN_INFO "%s called successfully for device in slot %d\n",
+           __func__, exp_card_device->parent_exp_card->slot_number);
+
+    return(0);
 }
+
 
 static int xhfc_remove(struct device *dev)
 {
-	struct fpga_exp_card_device *exp_card_device;
-	xhfc_t *xhfc;
+    struct fpga_exp_card_device *exp_card_device;
+    xhfc_t *xhfc;
 
-	if (!dev) {
-		printk(KERN_INFO "%s called for no device!\n", __FUNCTION__);
-		return -1;
-	}
+    if(!dev)
+        return(-EINVAL);
 
-	exp_card_device = device_to_fpga_exp_card_device(dev);
+    exp_card_device = device_to_fpga_exp_card_device(dev);
+    if(!exp_card_device)
+        return(-ENODEV);
 
-	if (!exp_card_device->parent_exp_card) {
-		printk(KERN_INFO "%s called for orphan device!\n",
-		       __func__);
-		return -1;
-	}
+    if(!exp_card_device->parent_exp_card)
+    {
+        printk(KERN_INFO "%s called for orphan device!\n",
+               __func__);
+        return(-ENODEV);
+    }
 
-	xhfc = xhfc_array[exp_card_device->parent_exp_card->slot_number];
-	if (xhfc) {
-		xhfc_array[exp_card_device->parent_exp_card->slot_number] =
-		    NULL;
-		destroy_workqueue(xhfc->workqueue);
-		kfree(xhfc);
-	} else
-		printk(KERN_WARNING "%s:%d No memory associated device\n",
-		       __func__, __LINE__);
+    xhfc = xhfc_array[exp_card_device->parent_exp_card->slot_number];
+    if(xhfc)
+    {
+        xhfc_array[exp_card_device->parent_exp_card->slot_number] = NULL;
+        destroy_workqueue(xhfc->workqueue);
+        kfree(xhfc);
+    } else
+        printk(KERN_WARNING "%s:%d No memory associated device\n",
+               __func__, __LINE__);
 
-	unblock_and_end_work(exp_card_device);
-	release_device_struct_ref(exp_card_device);
+    unblock_and_end_work(exp_card_device);
 
-	printk(KERN_INFO "%s called successfully for device in slot %d\n",
-	       __func__, exp_card_device->parent_exp_card->slot_number);
+    printk(KERN_INFO "%s called successfully for device in slot %d\n",
+           __func__, exp_card_device->parent_exp_card->slot_number);
 
-	return 0;
+    put_device(dev);
+
+    return(0);
 }
 
 DECLARE_FPGA_HL_DEVICE_DRIVER(drv_xhfc,
-			      "XHFC-2SU",
-			      DEV_COLOGNE,
-			      MAX_EXP_CARD_DEVICES,
-			      &xhfc_irq_callback, &xhfc_probe, &xhfc_remove);
+                  "XHFC-2SU",
+                  DEV_COLOGNE,
+                  MAX_EXP_CARD_DEVICES,
+                  &xhfc_irq_callback, &xhfc_probe, &xhfc_remove);
 
 
-static int __init
-xhfc_fpga_init(void)
+static int __init  xhfc_fpga_init(void)
 {
-	int err;
+    int err;
 
-	printk(KERN_INFO DRIVER_NAME " driver Rev. %s\n",
-	       xhfc_su_rev);
+    printk(KERN_INFO DRIVER_NAME ": %s driver %s, %s %s\n",
+           __FUNCTION__, xhfc_su_rev, __DATE__, __TIME__);
 
-	err = fpga_register_device_driver(&drv_xhfc);
+    memset(xhfc_array,
+           0,
+           sizeof(xhfc_array));
 
-	printk(KERN_INFO "Register of FPGA device driver return %d\n", err);
-	return err;
+    err = fpga_register_device_driver(&drv_xhfc);
+
+    printk(KERN_INFO "Registering to FPGA device driver returned %d\n", err);
+    return(err);
 }
 
-static void __exit
-xhfc_fpga_cleanup(void)
+static void __exit  xhfc_fpga_cleanup(void)
 {
-	printk(KERN_INFO DRIVER_NAME ": %s\n", __func__);
+    printk(KERN_INFO DRIVER_NAME ": %s\n", __func__);
 
-	fpga_unregister_device_driver(&drv_xhfc);
+    fpga_unregister_device_driver(&drv_xhfc);
 }
 
 module_init(xhfc_fpga_init);
