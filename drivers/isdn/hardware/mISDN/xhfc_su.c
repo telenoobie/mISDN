@@ -833,6 +833,11 @@ xhfc_su_setup_instance(struct xhfc *xhfc, struct device *parent)
 #endif
 	xhfc_lock_init(xhfc);
 
+#ifdef L1_CALLBACK_BH
+	spin_lock_init(&xhfc->l1lock);
+	xhfc->l1list = NULL;
+#endif /* L1_CALLBACK_BH */
+
 	err = xhfc_hw_initialise(xhfc);
 	if (err)
 		goto out;
