@@ -281,8 +281,8 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 	__u8 r_slot = 0;
 	__u8 a_sl_cfg = 0;
 
-	printk(KERN_INFO "%s: B%d set timeslots %d/%d --> %d/%d\n",
-		__func__, bch->nr, bch->pcm_tx, bch->pcm_rx, tx_slot, rx_slot);
+	printk(KERN_INFO "%s: B%d (ch_idx:%d) set timeslots %d/%d --> %d/%d\n",
+		__func__, bch->nr, ch_idx, bch->pcm_tx, bch->pcm_rx, tx_slot, rx_slot);
 	xhfc_port_lock_bh(port);
 	if (tx_slot != MISDN_PCM_SLOT_IGNORE && tx_slot != bch->pcm_tx) {
 		// If there is already a slot transmitting, disable it.
@@ -310,6 +310,8 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 			SET_V_CH_SNUM(a_sl_cfg, ch_idx);
 			SET_V_ROUT(a_sl_cfg, 0x03);	/* TX */
 			write_xhfc(xhfc, A_SL_CFG, a_sl_cfg);
+			printk(KERN_INFO "%s: B%d TX: rslot:%02x a_sl_cfg:%02x\n",
+			        __func__, bch->nr, r_slot, a_sl_cfg);
 		}
 		bch->pcm_tx = tx_slot;
 	}
@@ -332,15 +334,6 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 			a_sl_cfg = 0;
 		}
 
-		/* Setup RX timeslot */
-		SET_V_SL_DIR(r_slot, 1);	/* RX */
-		SET_V_SL_NUM(r_slot, rx_slot);
-		write_xhfc(xhfc, R_SLOT, r_slot);
-
-		SET_V_CH_SDIR(a_sl_cfg, 1);
-		SET_V_CH_SNUM(a_sl_cfg, ch_idx);
-		SET_V_ROUT(a_sl_cfg, 0x03);	/* RX */
-		write_xhfc(xhfc, A_SL_CFG, a_sl_cfg);
 		if (rx_slot != MISDN_PCM_SLOT_DISABLE) {
 			/* Setup RX timeslot */
 			SET_V_SL_DIR(r_slot, 1);	/* RX */
@@ -351,9 +344,24 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 			SET_V_CH_SNUM(a_sl_cfg, ch_idx);
 			SET_V_ROUT(a_sl_cfg, 0x03);	/* RX */
 			write_xhfc(xhfc, A_SL_CFG, a_sl_cfg);
+			printk(KERN_INFO "%s: B%d RX: rslot:%02x a_sl_cfg:%02x\n",
+			        __func__, bch->nr, r_slot, a_sl_cfg);
 		}
 		bch->pcm_rx = rx_slot;
 	}
+	if (bch->nr == 1) {
+		/* connect B1-SU RX with PCM TX */
+		setup_fifo(xhfc, port->idx * 8, 0xC6, 0, 0, 0);
+		/* connect B1-SU TX with PCM RX */
+		setup_fifo(xhfc, port->idx * 8 + 1, 0xC6, 0, 0, 0);
+		setup_su(xhfc, port->idx, 0, 1);
+        } else {
+		/* connect B2-SU RX with PCM TX */
+		setup_fifo(xhfc, port->idx * 8 + 2, 0xC6, 0, 0, 0);
+		/* connect B2-SU TX with PCM RX */
+		setup_fifo(xhfc, port->idx * 8 + 3, 0xC6, 0, 0, 0);
+		setup_su(xhfc, port->idx, 1, 1);
+        }
 	xhfc_port_unlock_bh(port);
 	return 0;
 }
@@ -370,10 +378,11 @@ xhfc_pcm_ch_setup(struct xhfc * xhfc, __u8 channel)
 	/* Connect ST/Up straight to PCM */
 	SET_V_DATA_FLOW(a_con_hdlc, 0x6);
 	/* B-TX Fifo */
-	setup_fifo(xhfc, (channel * 2), a_con_hdlc, 0, 0, 0);
+	setup_fifo(xhfc, (channel << 1), a_con_hdlc, 0, 0, 0);
 	/* B-RX Fifo */
-	setup_fifo(xhfc, (channel * 2) + 1, a_con_hdlc, 0, 0, 0);
+	setup_fifo(xhfc, (channel << 1) + 1, a_con_hdlc, 0, 0, 0);
 }
+
 
 /*
  * init BChannel prototol
