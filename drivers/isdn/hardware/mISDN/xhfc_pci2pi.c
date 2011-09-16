@@ -27,31 +27,30 @@
 #include "xhfc_su.h"
 #include "xhfc_pci2pi.h"
 
-static int card_cnt = 0;
+static int card_cnt;
 static LIST_HEAD(card_list);
-static rwlock_t card_lock = RW_LOCK_UNLOCKED;
-
+static DEFINE_RWLOCK(card_lock);
 
 static struct pci_device_id xhfc_ids[] = {
 	{
-	 .vendor = PCI_VENDOR_ID_CCD,
-	 .device = 0xA003,
-	 .subvendor = 0x1397,
-	 .subdevice = 0xA003,
-	 /* CCAG XHFC Eval Board with using 1 XHFC */
-	 .driver_data = (unsigned long)
-	 &((struct pi_params) {
-			       "XHFC Evaluation Board",
-			       1})
-	 },
+		.vendor = PCI_VENDOR_ID_CCD,
+		.device = 0xA003,
+		.subvendor = 0x1397,
+		.subdevice = 0xA003,
+		/* CCAG XHFC Eval Board with using 1 XHFC */
+		.driver_data = (unsigned long)&((struct pi_params) {
+			"XHFC Evaluation Board",
+			1
+		})
+	},
 	{}
 };
 
 static struct pci_driver xhfc_driver = {
-      name:DRIVER_NAME,
-      probe:xhfc_pci_probe,
-      remove:__devexit_p(xhfc_pci_remove),
-      id_table:xhfc_ids,
+      .name = DRIVER_NAME,
+      .probe = xhfc_pci_probe,
+      .remove = __devexit_p(xhfc_pci_remove),
+      .id_table = xhfc_ids,
 };
 
 /*
@@ -72,9 +71,9 @@ xhfc_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	int err = -ENOMEM;
 
 	/* alloc mem for ProcessorInterface xhfc_pi */
-	if (!(pi = kzalloc(sizeof(struct xhfc_pi), GFP_KERNEL))) {
-		printk(KERN_ERR "%s: No kmem for XHFC card\n",
-		       __FUNCTION__);
+	pi = kzalloc(sizeof(struct xhfc_pi), GFP_KERNEL);
+	if (!pi) {
+		printk(KERN_ERR "%s: No kmem for XHFC card\n", __func__);
 		goto out;
 	}
 
@@ -83,17 +82,16 @@ xhfc_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	sprintf(pi->name, "%s_PI%d", DRIVER_NAME, pi->cardnum);
 	printk(KERN_INFO
 	       "%s %s: adapter '%s' found on PCI bus %02x dev %02x"
-	       ", using %i XHFC controllers\n", pi->name, __FUNCTION__,
+	       ", using %i XHFC controllers\n", pi->name, __func__,
 	       driver_data->device_name, pdev->bus->number, pdev->devfn,
 	       driver_data->num_xhfcs);
 
 	/* alloc mem for all XHFCs (xhfc_t) */
-	if (!
-	    (pi->xhfc =
-	     kzalloc(sizeof(struct xhfc) * driver_data->num_xhfcs,
-		     GFP_KERNEL))) {
+	pi->xhfc = kzalloc(sizeof(struct xhfc) * driver_data->num_xhfcs,
+			GFP_KERNEL);
+	if (!pi->xhfc) {
 		printk(KERN_ERR "%s %s: No kmem for sizeof(xhfc_t)*%i \n",
-		       pi->name, __FUNCTION__, driver_data->num_xhfcs);
+		       pi->name, __func__, driver_data->num_xhfcs);
 		goto out;
 	}
 
@@ -101,14 +99,14 @@ xhfc_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	err = pci_enable_device(pdev);
 	if (err) {
 		printk(KERN_ERR "%s %s: error with pci_enable_device\n",
-		       pi->name, __FUNCTION__);
+		       pi->name, __func__);
 		goto out;
 	}
 
 	if (driver_data->num_xhfcs > PCI2PI_MAX_XHFC) {
 		printk(KERN_ERR
 		       "%s %s: max no of addressable XHFCs reached\n",
-		       pi->name, __FUNCTION__);
+		       pi->name, __func__);
 		goto out;
 	}
 
@@ -121,14 +119,14 @@ xhfc_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	err = init_pci_bridge(pi);
 	if (err) {
 		printk(KERN_ERR "%s %s: init_pci_bridge failed!\n",
-		       pi->name, __FUNCTION__);
+		       pi->name, __func__);
 		goto out;
 	}
 
 	/* init interrupt engine */
 	if (request_irq(pi->irq, xhfc_interrupt, IRQF_SHARED, "XHFC", pi)) {
 		printk(KERN_WARNING "%s %s: couldn't get interrupt %d\n",
-		       pi->name, __FUNCTION__, pi->irq);
+		       pi->name, __func__, pi->irq);
 		pi->irq = 0;
 		err = -EIO;
 		goto out;
@@ -147,17 +145,15 @@ xhfc_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		write_lock_irqsave(&card_lock, flags);
 		list_add_tail(&pi->list, &card_list);
 		write_unlock_irqrestore(&card_lock, flags);
-		return (0);
-	} else {
+		return 0;
+	} else
 		goto out;
-	}
 
-      out:
-	if (pi->xhfc)
-		kfree(pi->xhfc);
+out:
 	if (pi)
-		kfree(pi);
-	return (err);
+		kfree(pi->xhfc);
+	kfree(pi);
+	return err;
 }
 
 /*
@@ -169,7 +165,7 @@ xhfc_pci_remove(struct pci_dev *pdev)
 	int i;
 
 	struct xhfc_pi *pi = pci_get_drvdata(pdev);
-	printk(KERN_INFO "%s %s: removing card\n", pi->name, __FUNCTION__);
+	printk(KERN_INFO "%s %s: removing card\n", pi->name, __func__);
 
 	for (i = 0; i < pi->num_xhfcs; i++)
 		disable_interrupts(&pi->xhfc[i]);
@@ -202,33 +198,33 @@ xhfc_unregister_pi(void)
 
 
 static struct PCI2PI_cfg PCI2PI_config = {
-	0,			// .del_cs
-	0,			// .del_rd
-	0,			// .del_wr
-	0,			// .del_ale
-	0,			// .del_adr
-	0,			// .del_dout
-	0x00,			// .default_adr
-	0x00,			// .default_dout
-	PI_MODE,		// .pi_mode
-	1,			// .setup
-	1,			// .hold
-	1,			// .cycle
-	0,			// .ale_adr_first
-	0,			// .ale_adr_setup
-	1,			// .ale_adr_hold
-	0,			// .ale_adr_wait
-	1,			// .pause_seq
-	0,			// .pause_end
-	0,			// .gpio_out
-	1,			// .status_int_enable
-	0,			// .pi_int_pol
-	0,			// .pi_wait_enable
-	0,			// .spi_cfg0
-	2,			// .spi_cfg1
-	0,			// .spi_cfg2
-	0,			// .spi_cfg3
-	4,			// .eep_recover
+	0,			/* .del_cs */
+	0,			/* .del_rd */
+	0,			/* .del_wr */
+	0,			/* .del_ale */
+	0,			/* .del_adr */
+	0,			/* .del_dout */
+	0x00,			/* .default_adr */
+	0x00,			/* .default_dout */
+	PI_MODE,		/* .pi_mode */
+	1,			/* .setup */
+	1,			/* .hold */
+	1,			/* .cycle */
+	0,			/* .ale_adr_first */
+	0,			/* .ale_adr_setup */
+	1,			/* .ale_adr_hold */
+	0,			/* .ale_adr_wait */
+	1,			/* .pause_seq */
+	0,			/* .pause_end */
+	0,			/* .gpio_out */
+	1,			/* .status_int_enable */
+	0,			/* .pi_int_pol */
+	0,			/* .pi_wait_enable */
+	0,			/* .spi_cfg0 */
+	2,			/* .spi_cfg1 */
+	0,			/* .spi_cfg2 */
+	0,			/* .spi_cfg3 */
+	4,			/* .eep_recover */
 };
 
 /* base addr to address several XHFCs on one PCI2PI bridge */
@@ -240,37 +236,37 @@ __u32 PCI2PI_XHFC_OFFSETS[PCI2PI_MAX_XHFC] = { 0, 0x400 };
 static inline __u8
 ReadPCI2PI_u8(struct xhfc_pi *pi, __u16 reg_addr)
 {
-	return (*(volatile __u8 *) (pi->membase + reg_addr));
+	return readb(pi->membase + reg_addr);
 }
 
 static inline __u16
 ReadPCI2PI_u16(struct xhfc_pi *pi, __u16 reg_addr)
 {
-	return (*(volatile __u16 *) (pi->membase + reg_addr));
+	return readw(pi->membase + reg_addr);
 }
 
 static inline __u32
 ReadPCI2PI_u32(struct xhfc_pi *pi, __u16 reg_addr)
 {
-	return (*(volatile __u32 *) (pi->membase + reg_addr));
+	return readl(pi->membase + reg_addr);
 }
 
 static inline void
 WritePCI2PI_u8(struct xhfc_pi *pi, __u16 reg_addr, __u8 value)
 {
-	*((volatile __u8 *) (pi->membase + reg_addr)) = value;
+	writeb(value, pi->membase + reg_addr);
 }
 
 static inline void
 WritePCI2PI_u16(struct xhfc_pi *pi, __u16 reg_addr, __u16 value)
 {
-	*((volatile __u16 *) (pi->membase + reg_addr)) = value;
+	writew(value, pi->membase + reg_addr);
 }
 
 static inline void
 WritePCI2PI_u32(struct xhfc_pi *pi, __u16 reg_addr, __u32 value)
 {
-	*((volatile __u32 *) (pi->membase + reg_addr)) = value;
+	writel(value, pi->membase + reg_addr);
 }
 
 /*
@@ -284,7 +280,7 @@ init_pci_bridge(struct xhfc_pi *pi)
 
 	printk(KERN_INFO
 	       "%s %s: using PCI2PI Bridge at 0x%p, PI-Mode(0x%x)\n",
-	       pi->name, __FUNCTION__, pi->hw_membase,
+	       pi->name, __func__, pi->hw_membase,
 	       PCI2PI_config.pi_mode);
 
 	spin_lock_init(&pi->lock);
@@ -293,12 +289,11 @@ init_pci_bridge(struct xhfc_pi *pi)
 	WritePCI2PI_u32(pi, PCI2PI_DEL_CS, 0x0);
 	if (ReadPCI2PI_u32(pi, PCI2PI_DEL_CS) == 0x00) {
 		WritePCI2PI_u32(pi, PCI2PI_DEL_CS, 0xFFFFFFFF);
-		if (ReadPCI2PI_u32(pi, PCI2PI_DEL_CS) == 0xF) {
+		if (ReadPCI2PI_u32(pi, PCI2PI_DEL_CS) == 0xF)
 			err = 0;
-		}
 	}
 	if (err)
-		return (err);
+		return err;
 
 	/* enable hardware reset XHFC */
 	WritePCI2PI_u32(pi, PCI2PI_GPIO_OUT, GPIO_OUT_VAL);
@@ -311,8 +306,7 @@ init_pci_bridge(struct xhfc_pi *pi)
 	WritePCI2PI_u32(pi, PCI2PI_DEL_ADR, PCI2PI_config.del_adr);
 	WritePCI2PI_u32(pi, PCI2PI_DEL_DOUT, PCI2PI_config.del_dout);
 	WritePCI2PI_u32(pi, PCI2PI_DEFAULT_ADR, PCI2PI_config.default_adr);
-	WritePCI2PI_u32(pi, PCI2PI_DEFAULT_DOUT,
-			PCI2PI_config.default_dout);
+	WritePCI2PI_u32(pi, PCI2PI_DEFAULT_DOUT, PCI2PI_config.default_dout);
 
 	WritePCI2PI_u32(pi, PCI2PI_CYCLE_SHD, 0x80 * PCI2PI_config.setup
 			+ 0x40 * PCI2PI_config.hold + PCI2PI_config.cycle);
@@ -345,7 +339,7 @@ init_pci_bridge(struct xhfc_pi *pi)
 			GPIO_OUT_VAL | PCI2PI_GPIO7_NRST);
 	udelay(10);
 
-	return (err);
+	return err;
 }
 
 
@@ -369,15 +363,14 @@ init_pci_bridge(struct xhfc_pi *pi)
 
 /*****************************************************************************/
 
-#if ((PI_MODE==PI_INTELMX) || (PI_MODE==PI_MOTMX))
+#if ((PI_MODE == PI_INTELMX) || (PI_MODE == PI_MOTMX))
 
 /* functions for multiplexed access */
 inline __u8
-read_xhfc(struct xhfc * xhfc, __u8 reg_addr)
+read_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 {
-	return (*(volatile __u8 *) (xhfc->pi->membase +
-				    PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-				    (reg_addr << 2)));
+	return readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+		(reg_addr << 2));
 }
 
 /*
@@ -390,28 +383,22 @@ read32_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 {
 	__u32 value;
 
-	value = (*(volatile __u8 *) (xhfc->pi->membase +
-				     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-				     (reg_addr << 2)));
-	value |= (*(volatile __u8 *) (xhfc->pi->membase +
-				      PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-				      (reg_addr << 2))) << 8;
-	value |= (*(volatile __u8 *) (xhfc->pi->membase +
-				      PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-				      (reg_addr << 2))) << 16;
-	value |= (*(volatile __u8 *) (xhfc->pi->membase +
-				      PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-				      (reg_addr << 2))) << 24;
-
-	return (value);
+	value = readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+			(reg_addr << 2));
+	value |= readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+			(reg_addr << 2)) << 8;
+	value |= readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+			(reg_addr << 2)) << 16;
+	value |= readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+			(reg_addr << 2)) << 24;
+	return value;
 }
 
 inline void
 write_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u8 value)
 {
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-			     (reg_addr << 2))) = value;
+	writeb(value, xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+		(reg_addr << 2));
 }
 
 /*
@@ -422,18 +409,14 @@ write_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u8 value)
 inline void
 write32_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u32 value)
 {
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-			     (reg_addr << 2))) = value & 0xff;
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-			     (reg_addr << 2))) = (value >> 8) & 0xff;
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-			     (reg_addr << 2))) = (value >> 16) & 0xff;
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-			     (reg_addr << 2))) = (value >> 24) & 0xff;
+	writeb(value & 0xff, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + (reg_addr << 2));
+	writeb((value >> 8) & 0xff, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + (reg_addr << 2));
+	writeb((value >> 16) & 0xff, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + (reg_addr << 2));
+	writeb((value >> 24) & 0xff, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + (reg_addr << 2));
 }
 
 /*
@@ -444,12 +427,13 @@ write32_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u32 value)
 inline __u8
 sread_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 {
-	(*(volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-			     (reg_addr << 2)));
-	return (*(volatile __u8 *)
-		(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-		 (R_INT_DATA << 2)));
+	__u8	val;
+
+	val = readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+		(reg_addr << 2));
+	val = readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
+		(R_INT_DATA << 2));
+	return val;
 }
 
 /*
@@ -476,7 +460,7 @@ write_xhfcregptr(struct xhfc *xhfc, __u8 reg_addr)
 
 /*****************************************************************************/
 
-#if PI_MODE==PI_INTELNOMX || PI_MODE==PI_MOT
+#if PI_MODE == PI_INTELNOMX || PI_MODE == PI_MOT
 /*
  * functions for non multiplexed access:
  * XHFC register address pointer is accessed with PCI address A2=1 and XHFC data
@@ -490,14 +474,11 @@ read_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 	__u8 data;
 
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4)) =
-	    reg_addr;
-	data =
-	    *(volatile __u8 *) (xhfc->pi->membase +
-				PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
+	writeb(reg_addr, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
+	data = readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
-	return (data);
+	return data;
 }
 
 /*
@@ -506,19 +487,16 @@ read_xhfc(struct xhfc *xhfc, __u8 reg_addr)
  * interface.
  */
 inline __u32
-read32_xhfc(struct xhfc * xhfc, __u8 reg_addr)
+read32_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 {
 	u_long flags;
 	__u32 data;
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4)) =
-	    reg_addr;
-	data =
-	    *(volatile __u32 *) xhfc->pi->membase +
-	        PCI2PI_XHFC_OFFSETS[xhfc->chipidx];
-	    spin_unlock_irqrestore(&xhfc->pi->lock, flags);
-	return (data);
+	writeb(reg_addr, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
+	data = readl(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
+	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
+	return data;
 }
 
 inline void
@@ -526,11 +504,9 @@ write_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u8 value)
 {
 	u_long flags;
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4)) =
-	    reg_addr;
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx])) = value;
+	writeb(reg_addr, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
+	writeb(value, xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
 }
 
@@ -544,11 +520,9 @@ write32_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u32 value)
 {
 	u_long flags;
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4)) =
-	    reg_addr;
-	*((volatile __u32 *) (xhfc->pi->membase +
-			      PCI2PI_XHFC_OFFSETS[xhfc->chipidx])) = value;
+	writeb(reg_addr, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
+	writel(value, xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
 }
 
@@ -563,33 +537,25 @@ sread_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 	__u8 data;
 
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4)) =
-	    reg_addr;
-
-	/* dummy read to get R_INT_DATA */
-	(*(volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx]));
-
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4)) =
-	    R_INT_DATA;
-	data =
-	    *(volatile __u8 *) (xhfc->pi->membase +
-				PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
-	    spin_unlock_irqrestore(&xhfc->pi->lock, flags);
-	return (data);
+	writeb(reg_addr, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
+	data = readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx]));
+	writeb(R_INT_DATA, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
+	data = readb(xhfc->pi->membase + PCI2PI_XHFC_OFFSETS[xhfc->chipidx]);
+	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
+	return data;
 }
 
 /*
  * this function reads the currently selected regsiter from XHFC
  */
 inline __u8
-read_xhfcregptr(struct xhfc * xhfc)
+read_xhfcregptr(struct xhfc *xhfc)
 {
-	return (*(volatile __u8 *) (xhfc->pi->membase +
-				    PCI2PI_XHFC_OFFSETS[xhfc->chipidx] +
-				    4));
+	return readb(xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
 }
 
 /*
@@ -598,9 +564,8 @@ read_xhfcregptr(struct xhfc * xhfc)
 inline void
 write_xhfcregptr(struct xhfc *xhfc, __u8 reg_addr)
 {
-	*((volatile __u8 *) (xhfc->pi->membase +
-			     PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4)) =
-	    reg_addr;
+	writeb(reg_addr, xhfc->pi->membase +
+		PCI2PI_XHFC_OFFSETS[xhfc->chipidx] + 4);
 }
 
 #endif /* PI_MODE==PI_INTELNOMX || PI_MODE==PI_MOT */
@@ -625,17 +590,18 @@ read_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 	__u8 data;
 
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
-
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 32 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 32 clock SPI master transfer */
 	WritePCI2PI_u32(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_WR | xhfc->chipidx) << 24) |
 			(reg_addr << 16) | ((SPI_DATA | SPI_RD) << 8));
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
 
-	// read data from the SPI data receive register and return one byte
+	/* read data from the SPI data receive register and return one byte */
 	data = ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_MI_DATA) & 0xFF;
 
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
@@ -647,32 +613,36 @@ read_xhfc(struct xhfc *xhfc, __u8 reg_addr)
  * SPI multiple read access
  */
 inline __u32
-read32_xhfc(struct xhfc * xhfc, __u8 reg_addr)
+read32_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 {
 	u_long flags;
 	__u32 data;
 
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 16 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 16 clock SPI master transfer */
 	WritePCI2PI_u16(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_WR | xhfc->
 			  chipidx) << 8) | reg_addr);
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 8 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 8 clock SPI master transfer */
 	WritePCI2PI_u8(xhfc->pi, PCI2PI_SPI_MO_DATA,
 		       (SPI_DATA | SPI_RD | SPI_MULTI));
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 32 clock SPI master transfer
-	// output data is arbitrary
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 32 clock SPI master transfer */
+	/* output data is arbitrary */
 	WritePCI2PI_u32(xhfc->pi, PCI2PI_SPI_MO_DATA, 0);
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
 
-	// read data from the SPI data receive register and return four bytes
+	/* read data from the SPI data receive register and return four bytes */
 	data = be32_to_cpu(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_MI_DATA));
 
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
@@ -685,9 +655,10 @@ write_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u8 value)
 	u_long flags;
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 32 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 32 clock SPI master transfer */
 	WritePCI2PI_u32(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_WR | xhfc->chipidx) << 24) |
 			(reg_addr << 16) |
@@ -706,20 +677,23 @@ write32_xhfc(struct xhfc *xhfc, __u8 reg_addr, __u32 value)
 	u_long flags;
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 16 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 16 clock SPI master transfer */
 	WritePCI2PI_u16(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_WR | xhfc->
 			  chipidx) << 8) | reg_addr);
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 8 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 8 clock SPI master transfer */
 	WritePCI2PI_u8(xhfc->pi, PCI2PI_SPI_MO_DATA,
 		       (SPI_DATA | SPI_WR | SPI_MULTI));
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 32 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 32 clock SPI master transfer */
 	WritePCI2PI_u32(xhfc->pi, PCI2PI_SPI_MO_DATA, cpu_to_be32(value));
 
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
@@ -737,24 +711,28 @@ sread_xhfc(struct xhfc *xhfc, __u8 reg_addr)
 
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 32 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 32 clock SPI master transfer */
 	WritePCI2PI_u32(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_WR | xhfc->chipidx) << 24) |
 			(reg_addr << 16) | ((SPI_DATA | SPI_RD) << 8));
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 32 clock SPI master transfer to read R_INT_DATA register
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 32 clock SPI master transfer to read R_INT_DATA registe */
+		cpu_relax();
 	WritePCI2PI_u32(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_WR | xhfc->chipidx) << 24) |
 			(R_INT_DATA << 16) | ((SPI_DATA | SPI_RD) << 8));
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
 
-	// read data from the SPI data receive register and return one byte
+	/* read data from the SPI data receive register and return one byte */
 	data = ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_MI_DATA) & 0xFF;
 
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
@@ -765,22 +743,24 @@ sread_xhfc(struct xhfc *xhfc, __u8 reg_addr)
  * this function reads the currently selected regsiter from XHFC
  */
 inline __u8
-read_xhfcregptr(struct xhfc * xhfc)
+read_xhfcregptr(struct xhfc *xhfc)
 {
 	u_long flags;
 	__u8 data;
 
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 16 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 16 clock SPI master transfer */
 	WritePCI2PI_u16(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_RD | xhfc->chipidx) << 8));
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
 
-	// read data from the SPI data receive register and return one byte
+	/* read data from the SPI data receive register and return one byte */
 	data = ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_MI_DATA) & 0xFF;
 
 	spin_unlock_irqrestore(&xhfc->pi->lock, flags);
@@ -797,9 +777,10 @@ write_xhfcregptr(struct xhfc *xhfc, __u8 reg_addr)
 
 	spin_lock_irqsave(&xhfc->pi->lock, flags);
 
-	// wait until SPI master is idle
-	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1));
-	// initiate a 16 clock SPI master transfer
+	/* wait until SPI master is idle */
+	while (!(ReadPCI2PI_u32(xhfc->pi, PCI2PI_SPI_STATUS) & 1))
+		cpu_relax();
+	/* initiate a 16 clock SPI master transfer */
 	WritePCI2PI_u16(xhfc->pi, PCI2PI_SPI_MO_DATA,
 			((SPI_ADDR | SPI_WR | xhfc->
 			  chipidx) << 8) | reg_addr);

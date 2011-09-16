@@ -4,9 +4,8 @@
  */
 
 #include <linux/module.h>
-#include <asm/semaphore.h>
-#include "xhfc_su.h"
 #include "xhfc_fpga.h"
+#include "xhfc_su.h"
 
 #include "fpgaDriverEx/drv_fpga_common.h"
 #include "fpgaDriverEx/drv_fpga_hl_device_driver.h"
@@ -17,14 +16,17 @@
 #include "fpgaDriverEx/drv_fpga_exp_card_device.h"
 #include "fpgaDriverEx/drv_fpga_readwrite.h"
 
-
-#define MAX_EXP_CARD_DEVICES    16
-static xhfc_t *xhfc_array[MAX_EXP_CARD_DEVICES];
+/* This lock has to be taken all time you access xhfc_array */
+static struct semaphore	 xhfc_array_lock;
+static struct xhfc *xhfc_array[MAX_NUMBER_OF_SLOTS];
 
 
 //#define XHFC_DEBUG
 
-
+int xhfc_fpga_get_slot_number(struct fpga_exp_card_device *fecd)
+{
+	return fecd->parent_exp_card->slot_number;
+}
 
 /* SPI mode transaction bit definitions */
 #define SPI_ADDR        0x40
@@ -267,7 +269,7 @@ inline  unsigned  xhfc_reg_build_write32(
 
 
 int  xhfc_reg_read(
-           xhfc_t *xhfc,
+           struct xhfc *xhfc,
        __u8 const *reg_addr,
              __u8 *ipValues,
          unsigned  ivCount)
@@ -297,13 +299,13 @@ int  xhfc_reg_read(
     lpBuffer[0] = lvOffset - 1;
 
 
-    if(fpga_write_wait(xhfc->exp_card_device,
+    if(fpga_write_wait(xhfc->hw,
                        0,
                        lpBuffer,
                        lvOffset) < 0)
         return(-1);
 
-    if(fpga_read(xhfc->exp_card_device,
+    if(fpga_read(xhfc->hw,
                  0,
                  lpBuffer,
                  lvOffset) < 0)
@@ -323,7 +325,7 @@ int  xhfc_reg_read(
 
 
 int  xhfc_reg_write(
-            xhfc_t *xhfc,
+            struct xhfc *xhfc,
         __u8 const *reg_addr,
               __u8 *ipValues,
           unsigned  ivCount)
@@ -353,7 +355,7 @@ int  xhfc_reg_write(
     lpBuffer[0] = lvOffset - 1;
 
 
-    if(fpga_write(xhfc->exp_card_device,
+    if(fpga_write(xhfc->hw,
                   0,
                   lpBuffer,
                   lvOffset) < 0)
@@ -365,7 +367,7 @@ int  xhfc_reg_write(
 
 
 int  xhfc_array_read(
-             xhfc_t *xhfc,
+             struct xhfc *xhfc,
          __u8 const  reg_addr,
                __u8 *ipValues,
            unsigned  ivCount)
@@ -397,13 +399,13 @@ int  xhfc_array_read(
     lpBuffer[0] = lvOffset - 1;
 
 
-    if(fpga_write_wait(xhfc->exp_card_device,
+    if(fpga_write_wait(xhfc->hw,
                        0,
                        lpBuffer,
                        lvOffset) < 0)
         return(-1);
 
-    if(fpga_read(xhfc->exp_card_device,
+    if(fpga_read(xhfc->hw,
                  0,
                  lpBuffer,
                  lvOffset) < 0)
@@ -425,7 +427,7 @@ int  xhfc_array_read(
 
 
 int  xhfc_array_write(
-              xhfc_t *xhfc,
+              struct xhfc *xhfc,
           __u8 const  reg_addr,
                 __u8 *ipValues,
             unsigned  ivCount)
@@ -457,7 +459,7 @@ int  xhfc_array_write(
     lpBuffer[0] = lvOffset - 1;
 
 
-    if(fpga_write(xhfc->exp_card_device,
+    if(fpga_write(xhfc->hw,
                   0,
                   lpBuffer,
                   lvOffset) < 0)
@@ -471,17 +473,26 @@ int  xhfc_array_write(
 static void  xhfc_irq_callback(
   struct fpga_exp_card_device *exp_card_device)
 {
+    struct xhfc *xhfc;
+
     if(!exp_card_device)
         printk(KERN_WARNING "%s: No Device\n", __func__);
     else if(!exp_card_device->parent_exp_card)
         printk(KERN_WARNING "%s: Orphan Device\n", __func__);
-    else if(!xhfc_array[exp_card_device->parent_exp_card->slot_number])
-        printk(KERN_WARNING "%s: Device not registered\n",
-            __func__);
-    else
-    {
-        /* Call the handler */
-        xhfc_su_irq_handler(xhfc_array[exp_card_device->parent_exp_card->slot_number]);
+    else {
+        down_interruptible(&xhfc_array_lock);
+        xhfc = xhfc_array[exp_card_device->parent_exp_card->slot_number];
+        if (!xhfc) {
+            up(&xhfc_array_lock);
+            printk(KERN_WARNING "%s: Device slot %d not registered\n",
+                __func__, exp_card_device->parent_exp_card->slot_number);
+        } else {
+            xhfc_lock(xhfc);
+            up(&xhfc_array_lock);
+            /* Call the handler */
+            xhfc_su_irq_handler(xhfc);
+            xhfc_unlock(xhfc);
+        }
     }
 }
 
@@ -489,7 +500,7 @@ static void  xhfc_irq_callback(
 static int xhfc_probe(struct device *dev)
 {
     struct fpga_exp_card_device *exp_card_device;
-    xhfc_t *xhfc;
+    struct xhfc *xhfc;
     char wq_name[20];
 
     if(!dev)
@@ -514,36 +525,39 @@ static int xhfc_probe(struct device *dev)
         return(-ENOENT);
     }
 
-    if(exp_card_device->parent_exp_card->slot_number > MAX_EXP_CARD_DEVICES)
+    if(exp_card_device->parent_exp_card->slot_number > MAX_NUMBER_OF_SLOTS)
     {
         printk(KERN_WARNING "%s: illegal slot number %d\n",
                __FUNCTION__,
                exp_card_device->parent_exp_card->slot_number);
         return(-EINVAL);
     }
-
+    down_interruptible(&xhfc_array_lock);
     if(xhfc_array[exp_card_device->parent_exp_card->slot_number])
     {
+        up(&xhfc_array_lock);
         printk(KERN_WARNING
                "%s: already managing a device on slot %d\n",
                __func__, exp_card_device->parent_exp_card->slot_number);
         return(-1);
     }
 
-    if(!get_device(dev))
+    if(!get_device(dev)) {
+        up(&xhfc_array_lock);
         return(-ENODEV);
+    }
 
-    xhfc = kzalloc(sizeof(xhfc_t), GFP_KERNEL);
+    xhfc = kzalloc(sizeof(struct xhfc), GFP_KERNEL);
     if(!xhfc)
     {
         printk(KERN_ERR "%s:%d No memory available\n", __func__,
                __LINE__);
-
+        up(&xhfc_array_lock);
         put_device(dev);
         return(-ENOMEM);
     }
 
-    snprintf(xhfc->name, sizeof(xhfc->name), "xhfc.%d", exp_card_device->parent_exp_card->slot_number);
+    snprintf(xhfc->name, sizeof(xhfc->name), "xhfc_%d", exp_card_device->parent_exp_card->slot_number);
     snprintf(wq_name,
          sizeof(wq_name),
          "xhfc-wq(%d)", exp_card_device->parent_exp_card->slot_number);
@@ -553,8 +567,9 @@ static int xhfc_probe(struct device *dev)
               xhfc_bh_handler_workfunction);
 
     xhfc_array[exp_card_device->parent_exp_card->slot_number] = xhfc;
+    up(&xhfc_array_lock);
     xhfc->chipidx = exp_card_device->parent_exp_card->slot_number;
-    xhfc->exp_card_device = exp_card_device;
+    xhfc->hw = exp_card_device;
 
     fpga_irq_enable(exp_card_device);
 
@@ -562,7 +577,9 @@ static int xhfc_probe(struct device *dev)
     {
         printk(KERN_WARNING "%s: failed to set-up xhfc instance %s\n",
                __func__, xhfc->name);
+        down_interruptible(&xhfc_array_lock);
         xhfc_array[exp_card_device->parent_exp_card->slot_number] = NULL;
+        up(&xhfc_array_lock);
         kfree(xhfc);
         put_device(dev);
         return(-EIO);
@@ -578,7 +595,7 @@ static int xhfc_probe(struct device *dev)
 static int xhfc_remove(struct device *dev)
 {
     struct fpga_exp_card_device *exp_card_device;
-    xhfc_t *xhfc;
+    struct xhfc *xhfc;
 
     if(!dev)
         return(-EINVAL);
@@ -593,16 +610,19 @@ static int xhfc_remove(struct device *dev)
                __func__);
         return(-ENODEV);
     }
-
+    down_interruptible(&xhfc_array_lock);
     xhfc = xhfc_array[exp_card_device->parent_exp_card->slot_number];
     if(xhfc)
     {
         xhfc_array[exp_card_device->parent_exp_card->slot_number] = NULL;
+        up(&xhfc_array_lock);
         destroy_workqueue(xhfc->workqueue);
         kfree(xhfc);
-    } else
+    } else {
+        up(&xhfc_array_lock);
         printk(KERN_WARNING "%s:%d No memory associated device\n",
                __func__, __LINE__);
+    }
 
     unblock_and_end_work(exp_card_device);
 
@@ -617,7 +637,7 @@ static int xhfc_remove(struct device *dev)
 DECLARE_FPGA_HL_DEVICE_DRIVER(drv_xhfc,
                   "XHFC-2SU",
                   DEV_COLOGNE,
-                  MAX_EXP_CARD_DEVICES,
+                  MAX_NUMBER_OF_SLOTS,
                   &xhfc_irq_callback, &xhfc_probe, &xhfc_remove);
 
 
@@ -628,9 +648,7 @@ static int __init  xhfc_fpga_init(void)
     printk(KERN_INFO DRIVER_NAME ": %s driver %s, %s %s\n",
            __FUNCTION__, xhfc_su_rev, __DATE__, __TIME__);
 
-    memset(xhfc_array,
-           0,
-           sizeof(xhfc_array));
+    sema_init(&xhfc_array_lock, 1);
 
     err = fpga_register_device_driver(&drv_xhfc);
 

@@ -24,6 +24,11 @@
 #ifndef _XHFC_PCI2PI_H_
 #define _XHFC_PCI2PI_H_
 
+/* define bridge for chip register access */
+#define BRIDGE_UNKWOWN	0
+#define BRIDGE_PCI2PI	1 /* used at Cologne Chip AG's Evaluation Card */
+#define BRIDGE		BRIDGE_PCI2PI
+
 /* differnt PCI modes supported by PCI2PI */
 #define PI_INTELNOMX	0
 #define PI_INTELMX	1
@@ -34,12 +39,13 @@
 #define PI_AUTOEEP	7
 
 /* PI_MODE to GPIO mapping */
-#define PI_INTELMX_GPIO		PCI2PI_GPIO3_MODE1	/* ALE pulse switches to MULTIPLEXED */
+				/* ALE pulse switches to MULTIPLEXED */
+#define PI_INTELMX_GPIO		PCI2PI_GPIO3_MODE1
 #define PI_INTELNOMX_GPIO	PCI2PI_GPIO3_MODE1
 #define PI_MOT_GPIO		PCI2PI_GPIO2_MODE0
 #define PI_MOTMX_GPIO		PCI2PI_GPIO2_MODE0
 #define PI_SPI_GPIO		0
-#define PI_AUTOEEP_GPIO		PCI2PI_GPIO2_MODE0 | PCI2PI_GPIO3_MODE1
+#define PI_AUTOEEP_GPIO		(PCI2PI_GPIO2_MODE0 | PCI2PI_GPIO3_MODE1)
 
 
 /* PCI2PI GPIO to XHFC signal mapping */
@@ -56,7 +62,7 @@
 #define XHFC_1SU_BOND	0
 #define XHFC_2SU_BOND	PCI2PI_GPIO0_BOND0
 #define XHFC_2S4U_BOND	PCI2PI_GPIO1_BOND1
-#define XHFC_4SU_BOND	PCI2PI_GPIO1_BOND1 | PCI2PI_GPIO0_BOND0
+#define XHFC_4SU_BOND	(PCI2PI_GPIO1_BOND1 | PCI2PI_GPIO0_BOND0)
 
 /* membase offset to address XHFC controllers */
 #define PCI2PI_MAX_XHFC 2
@@ -75,22 +81,22 @@ extern __u32 PCI2PI_XHFC_OFFSETS[PCI2PI_MAX_XHFC];
 /*******************************************************/
 
 #if (PI_MODE == PI_INTELNOMX)
-#define GPIO_OUT_VAL	XHFC_BOND | PI_INTELNOMX_GPIO
+#define GPIO_OUT_VAL	(XHFC_BOND | PI_INTELNOMX_GPIO)
 
 #elif (PI_MODE == PI_INTELMX)
-#define GPIO_OUT_VAL	XHFC_BOND | PI_INTELMX_GPIO
+#define GPIO_OUT_VAL	(XHFC_BOND | PI_INTELMX_GPIO)
 
 #elif (PI_MODE == PI_MOT)
-#define GPIO_OUT_VAL	XHFC_BOND | PI_MOT_GPIO
+#define GPIO_OUT_VAL	(XHFC_BOND | PI_MOT_GPIO)
 
 #elif (PI_MODE == PI_MOTMX)
-#define GPIO_OUT_VAL	XHFC_BOND | PI_MOTMX_GPIO
+#define GPIO_OUT_VAL	(XHFC_BOND | PI_MOTMX_GPIO)
 
 #elif (PI_MODE == PI_SPI)
-#define GPIO_OUT_VAL	XHFC_BOND | PI_SPI_GPIO
+#define GPIO_OUT_VAL	(XHFC_BOND | PI_SPI_GPIO)
 
 #elif (PI_MODE == PI_AUTOEEP)
-#define GPIO_OUT_VAL	XHFC_BOND | PI_AUTOEEP_GPIO
+#define GPIO_OUT_VAL	(XHFC_BOND | PI_AUTOEEP_GPIO)
 #endif
 
 /*******************************************************/
@@ -106,14 +112,14 @@ extern __u32 PCI2PI_XHFC_OFFSETS[PCI2PI_MAX_XHFC];
 
 /* PCI2PI register definitions */
 #define PCI2PI_OFFSET		0x00000800
-#define PCI2PI_DEL_CS		4*0x00 + PCI2PI_OFFSET
-#define PCI2PI_DEL_RD		4*0x01 + PCI2PI_OFFSET
-#define PCI2PI_DEL_WR		4*0x02 + PCI2PI_OFFSET
-#define PCI2PI_DEL_ALE		4*0x03 + PCI2PI_OFFSET
-#define PCI2PI_DEL_ADR		4*0x04 + PCI2PI_OFFSET
-#define PCI2PI_DEL_DOUT		4*0x05 + PCI2PI_OFFSET
-#define PCI2PI_DEFAULT_ADR	4*0x06 + PCI2PI_OFFSET
-#define PCI2PI_DEFAULT_DOUT	4*0x07 + PCI2PI_OFFSET
+#define PCI2PI_DEL_CS		(4 * 0x00 + PCI2PI_OFFSET)
+#define PCI2PI_DEL_RD		(4 * 0x01 + PCI2PI_OFFSET)
+#define PCI2PI_DEL_WR		(4 * 0x02 + PCI2PI_OFFSET)
+#define PCI2PI_DEL_ALE		(4 * 0x03 + PCI2PI_OFFSET)
+#define PCI2PI_DEL_ADR		(4 * 0x04 + PCI2PI_OFFSET)
+#define PCI2PI_DEL_DOUT		(4 * 0x05 + PCI2PI_OFFSET)
+#define PCI2PI_DEFAULT_ADR	(4 * 0x06 + PCI2PI_OFFSET)
+#define PCI2PI_DEFAULT_DOUT	(4 * 0x07 + PCI2PI_OFFSET)
 
 
 /*
@@ -125,44 +131,43 @@ extern __u32 PCI2PI_XHFC_OFFSETS[PCI2PI_MAX_XHFC];
  * 110: EEPROM programming mode throug PCIIF00 Target
  * 111: XHFC AutoEEPROM mode
  */
-#define PCI2PI_PI_MODE		4*0x08 + PCI2PI_OFFSET
-
-#define PCI2PI_CYCLE_SHD	4*0x09 + PCI2PI_OFFSET
-#define PCI2PI_ALE_ADR_WHSF	4*0x0a + PCI2PI_OFFSET
-#define PCI2PI_CYCLE_PAUSE	4*0x0b + PCI2PI_OFFSET
-#define PCI2PI_GPIO_OUT		4*0x0c + PCI2PI_OFFSET
-#define PCI2PI_G1		4*0x0e + PCI2PI_OFFSET
-#define PCI2PI_G0		4*0x0f + PCI2PI_OFFSET
+#define PCI2PI_PI_MODE		(4 * 0x08 + PCI2PI_OFFSET)
+#define PCI2PI_CYCLE_SHD	(4 * 0x09 + PCI2PI_OFFSET)
+#define PCI2PI_ALE_ADR_WHSF	(4 * 0x0a + PCI2PI_OFFSET)
+#define PCI2PI_CYCLE_PAUSE	(4 * 0x0b + PCI2PI_OFFSET)
+#define PCI2PI_GPIO_OUT		(4 * 0x0c + PCI2PI_OFFSET)
+#define PCI2PI_G1		(4 * 0x0e + PCI2PI_OFFSET)
+#define PCI2PI_G0		(4 * 0x0f + PCI2PI_OFFSET)
 
 /*
  * bit0: is set by PI_INT active, is reseted by reading this register
  * bit1: is set by PI_WAIT active, is reseted by reading this register
  */
-#define PCI2PI_STATUS		4*0x10 + PCI2PI_OFFSET
+#define PCI2PI_STATUS		(4 * 0x10 + PCI2PI_OFFSET)
 
 
 /* bit0: enable PCI interrupt output */
-#define PCI2PI_STATUS_INT_ENABLE	4*0x11 + PCI2PI_OFFSET
+#define PCI2PI_STATUS_INT_ENABLE	(4 * 0x11 + PCI2PI_OFFSET)
 
 /*
  * bit0: 0 = low active interrupt is detected at PI_INT
  * bit0: 1 = high active interrupt is detected at PI_INT
  */
-#define PCI2PI_PI_INT_POL	4*0x12 + PCI2PI_OFFSET
+#define PCI2PI_PI_INT_POL	(4 * 0x12 + PCI2PI_OFFSET)
 
 /* SPI registers */
 /* 32 bit SPI master data output register */
-#define PCI2PI_SPI_MO_DATA	4*0x20 + PCI2PI_OFFSET
+#define PCI2PI_SPI_MO_DATA	(4 * 0x20 + PCI2PI_OFFSET)
 
 /* 32 bit SPI master data input register */
-#define PCI2PI_SPI_MI_DATA	4*0x21 + PCI2PI_OFFSET
+#define PCI2PI_SPI_MI_DATA	(4 * 0x21 + PCI2PI_OFFSET)
 
 /*
  * bit 0: 0 SPI bits are processing on the serial input/output
  * bit 0: 1 SPI bits are processed, new data can be written or read
  * bit 1..31: unused
  */
-#define PCI2PI_SPI_STATUS	4*0x22 + PCI2PI_OFFSET
+#define PCI2PI_SPI_STATUS	(4 * 0x22 + PCI2PI_OFFSET)
 
 /*
  * bit 0: spi clock polarity, defines level for SPISEL1
@@ -170,27 +175,27 @@ extern __u32 PCI2PI_XHFC_OFFSETS[PCI2PI_MAX_XHFC];
  * bit 2: 0MSB first (default) , 1LSB first
  * bit 3: 1SPI clock permanent during SPISEL1
  */
-#define PCI2PI_SPI_CFG0		4*0x28 + PCI2PI_OFFSET
+#define PCI2PI_SPI_CFG0		(4 * 0x28 + PCI2PI_OFFSET)
 
 /*
  * bit 0..3: spi clock frequency, SPI clock period  (value+1) x 2 x PCIperiod
  * 0: 2 PCIperiods
  * 1:
  */
-#define PCI2PI_SPI_CFG1		4*0x29 + PCI2PI_OFFSET
+#define PCI2PI_SPI_CFG1		(4 * 0x29 + PCI2PI_OFFSET)
 
 /* bit 0..3: SPI Device SEL: defines level of D0..D3, XHFC SPI address */
-#define PCI2PI_SPI_CFG2		4*0x2A + PCI2PI_OFFSET
+#define PCI2PI_SPI_CFG2		(4 * 0x2A + PCI2PI_OFFSET)
 
 /*
  * bit 0: 1spi master out permanent driven
  * bit 1: 1SPISEL remains low between bytes of a sequence
  * bit 2: 1SPISEL remains low permanent
  */
-#define PCI2PI_SPI_CFG3		4*0x2B + PCI2PI_OFFSET
+#define PCI2PI_SPI_CFG3		(4 * 0x2B + PCI2PI_OFFSET)
 
 /* bit 0..3: default 0100 */
-#define PCI2PI_EEP_RECOVER	4*0x30 + PCI2PI_OFFSET
+#define PCI2PI_EEP_RECOVER	(4 * 0x30 + PCI2PI_OFFSET)
 
 struct PCI2PI_cfg {
 	__u32 del_cs;		/* Bit 3..0, bit 3: 0.5 PCI clk,
@@ -306,24 +311,24 @@ struct xhfc_pi {
 	struct list_head list;
 
 	/* each PI may contain several XHFCs */
-	struct xhfc * xhfc;
+	struct xhfc *xhfc;
 };
 
 
 /* prototypes: PCI bridge management */
-int init_pci_bridge(struct xhfc_pi * pi);
-int __devinit xhfc_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent);
-void __devexit xhfc_pci_remove(struct pci_dev *pdev);
+int init_pci_bridge(struct xhfc_pi *);
+int __devinit xhfc_pci_probe(struct pci_dev *, const struct pci_device_id *);
+void __devexit xhfc_pci_remove(struct pci_dev *);
 int xhfc_register_pi(void);
 int xhfc_unregister_pi(void);
 
 /* prototypes: xhfc register access */
-__u8 read_xhfc(struct xhfc *, __u8 reg_addr);
-__u32 read32_xhfc(struct xhfc *, __u8 reg_addr);
-void write_xhfc(struct xhfc *, __u8 reg_addr, __u8 value);
-void write32_xhfc(struct xhfc *, __u8 reg_addr, __u32 value);
-__u8 sread_xhfc(struct xhfc *, __u8 reg_addr);
-void write_xhfcregptr(struct xhfc *, __u8 reg_addr);
+__u8 read_xhfc(struct xhfc *, __u8);
+__u32 read32_xhfc(struct xhfc *, __u8);
+void write_xhfc(struct xhfc *, __u8, __u8);
+void write32_xhfc(struct xhfc *, __u8, __u32);
+__u8 sread_xhfc(struct xhfc *, __u8);
+void write_xhfcregptr(struct xhfc *, __u8);
 __u8 read_xhfcregptr(struct xhfc *);
 
 #endif /* _XHFC_PCI2PI_H_ */
