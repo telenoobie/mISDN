@@ -1000,7 +1000,8 @@ xhfc_l1callback(struct dchannel *dch, u_int cmd)
 	struct port *p = dch->hw;
 
 	if (debug & DEBUG_HW)
-		printk(KERN_DEBUG "%s: %s cmd 0x%x\n", p->name, __func__, cmd);
+		printk(KERN_DEBUG "%s: %s cmd 0x%x state F%d\n",
+			p->name, __func__, cmd, dch->state);
 
 	switch (cmd) {
 	case INFO3_P8:
@@ -1030,6 +1031,17 @@ xhfc_l1callback(struct dchannel *dch, u_int cmd)
 			NULL, GFP_ATOMIC);
 		break;
 	case PH_DEACTIVATE_IND:
+		xhfc_port_lock_bh(p);
+		switch(dch->state) {
+		case 4:
+		case 5:
+		case 8:
+			xhfc_ph_command(p, L1_FORCE_DEACTIVATE_TE);
+			break;
+		default:
+			break;
+	        }
+	        xhfc_port_unlock_bh(p);
 		test_and_clear_bit(FLG_ACTIVE, &dch->Flags);
 		_queue_data(&dch->dev.D, cmd, MISDN_ID_ANY, 0,
 			NULL, GFP_ATOMIC);
@@ -1515,8 +1527,9 @@ ph_state_te(struct dchannel *dch)
 	case 3:
 		l1_event(dch->l1, XHFC_L1_F3);
 		break;
+	case 4:
+		break;
 	case 5:
-	case 8:
 		l1_event(dch->l1, ANYSIGNAL);
 		break;
 	case 6:
@@ -1529,6 +1542,13 @@ ph_state_te(struct dchannel *dch)
 			p->f7_timer.expires = jiffies + ((HZ + 999) / 1000);
 			add_timer(&p->f7_timer);
 		}
+		break;
+	case 8:
+		l1_event(dch->l1, LOSTFRAMING);
+		break;
+	default:
+		printk(KERN_INFO "%s TE F%d not handled\n",
+			p->name, dch->state);
 		break;
 	}
 }
