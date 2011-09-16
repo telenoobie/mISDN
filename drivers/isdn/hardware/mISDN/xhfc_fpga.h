@@ -23,6 +23,7 @@ extern int xhfc_fpga_get_slot_number(struct fpga_exp_card_device *);
 #undef	XHFC_PORT_LOCK_TYPE
 #undef  XHFC_USE_BH_TASKLET
 #define XHFC_USE_BH_WORKQUEUE
+#define XHFC_NO_BUSY_WAIT
 
 #define XHFC_CHIP_LOCK
 #define XHFC_CHIP_LOCK_TYPE(v)	struct semaphore v

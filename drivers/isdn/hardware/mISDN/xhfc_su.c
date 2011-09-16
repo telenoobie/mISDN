@@ -78,12 +78,16 @@ const char *XHFC_PH_COMMANDS[] = {
 	"L1_TESTLOOP_OFF"
 };
 
+#ifdef XHFC_NO_BUSY_WAIT
+#define xhfc_waitbusy(x)	do { } while(0)
+#else
 static inline void
 xhfc_waitbusy(struct xhfc *xhfc)
 {
 	while (read_xhfc(xhfc, R_STATUS) & M_BUSY)
 		cpu_relax();
 }
+#endif
 
 static inline void
 xhfc_selfifo(struct xhfc *xhfc, __u8 fifo)
@@ -958,10 +962,8 @@ deactivate_bchannel(struct bchannel *bch)
 		printk(KERN_DEBUG "%s: %s: bch->nr(%i)\n",
 			p->name, __func__, bch->nr);
 
-	xhfc_port_lock_bh(p);
 	mISDN_clear_bchannel(bch);
 	xhfc_setup_bch(bch, ISDN_P_NONE);
-	xhfc_port_unlock_bh(p);
 }
 
 /*
@@ -1156,8 +1158,13 @@ xhfc_bctrl(struct mISDNchannel *ch, u_int cmd, void *arg)
 		break;
 	case CLOSE_CHANNEL:
 		test_and_clear_bit(FLG_OPEN, &bch->Flags);
-		if (test_bit(FLG_ACTIVE, &bch->Flags))
+		if (test_bit(FLG_ACTIVE, &bch->Flags)) {
+			struct port *p = bch->hw;
+
+			xhfc_port_lock_bh(p);
 			deactivate_bchannel(bch);
+			xhfc_port_unlock_bh(p);
+		}
 		ch->protocol = ISDN_P_NONE;
 		ch->peer = NULL;
 		module_put(THIS_MODULE);
@@ -1259,11 +1266,16 @@ open_bchannel(struct port *p, struct channel_req *rq)
 			p->name, __func__, rq->adr.channel);
 
 	bch = get_bchannel4number(p, rq->adr.channel);
-	if (!bch)
+	if (!bch) {
+		printk(KERN_WARNING "%s: cannot open invalid channel %d\n",
+			p->name, rq->adr.channel);
 		return -EINVAL;
-
-	if (test_and_set_bit(FLG_OPEN, &bch->Flags))
+	}
+	if (test_and_set_bit(FLG_OPEN, &bch->Flags)) {
+		printk(KERN_WARNING "%s: B%d cannot open channel - BUSY\n",
+			p->name, rq->adr.channel);
 		return -EBUSY;	/* b-channel can be only open once */
+	}
 	test_and_clear_bit(FLG_FILLEMPTY, &bch->Flags);
 	bch->ch.protocol = rq->protocol;
 	rq->ch = &bch->ch;
@@ -1656,7 +1668,7 @@ xhfc_read_fifo(struct xhfc *xhfc, __u8 channel)
 {
 	__u8 f1 = 0, f2 = 0, z1 = 0, z2 = 0;
 	__u8 fstat = 0;
-	int i;
+	int i, newlen;
 	int rcnt;			/* read rcnt bytes out of fifo */
 	__u8 *data;			/* new data pointer */
 	struct sk_buff **rx_skb = NULL;	/* data buffer for upper layer */
@@ -1729,7 +1741,7 @@ receive_buffer:
 			"z1(%i) z2(%i)\n",
 			rcnt, channel, xhfc->irq_cnt, fstat, i, f1, f2, z1, z2);
 	}
-
+try_again:
 	if (rcnt > 0) {
 		if (!(*rx_skb)) {
 			*rx_skb = mI_alloc_skb(maxlen, GFP_ATOMIC);
@@ -1739,17 +1751,52 @@ receive_buffer:
 				return;
 			}
 		}
+		newlen = (*rx_skb)->len + rcnt;
+		if (newlen > maxlen) {
+			/* we got more data in one frame as expected
+			 * this should not happen and is an error case
+			 */
+			printk(KERN_WARNING
+				"%s: read %d bytes total %d (max:%d) %s\n",
+				__func__, rcnt, newlen, maxlen, (f1 == f2) ?
+				"frame end" : "frame continue");
+			if (!hdlc) {
+				if ((*rx_skb)->len)
+					recv_Bchannel(bch, MISDN_ID_ANY);
+				else if (rcnt > maxlen)
+					rcnt = maxlen;
+				goto try_again;
+			}
+			/* hdlc */
+			if (f1 != f2) {
+				/* frame end detected - read and drop frame*/
+				__u8 dummy[4];
+				unsigned int *dp = (unsigned int *)&dummy;
 
-		if(rcnt > ((*rx_skb)->end - (*rx_skb)->tail)) {
-		/* limit amount of data to be read from FIFO */
-			printk(KERN_WARNING "%s: %s channel %d; rx_skb overflow.  size(%d) < len(%d) + rcnt(%d)\n",
-			       __FUNCTION__,
-			       xhfc->name,
-			       channel,
-			     (*rx_skb)->end - (*rx_skb)->data,
-			     (*rx_skb)->len,
-			       rcnt);
-			rcnt = ((*rx_skb)->end - (*rx_skb)->tail);
+				/* read data from FIFO */
+				i = 0;
+				while ((i + 4) <= rcnt) {
+					read32_xhfc(xhfc, A_FIFO_DATA, dummy);
+					i += 4;
+					if (debug & DEBUG_HFC_FIFO_ERR)
+						printk(KERN_DEBUG
+							"read dummy %08x\n",
+							*dp);
+				}
+				while (i < rcnt) {
+					dummy[0] = read_xhfc(xhfc, A_FIFO_DATA);
+					i++;
+					if (debug & DEBUG_HFC_FIFO_ERR)
+						printk(KERN_DEBUG
+							"read dummy %02x\n",
+							dummy[0]);
+				}
+				xhfc_inc_f(xhfc);
+			} else /* no frame end detected - reset fifo */
+				xhfc_resetfifo(xhfc);
+			/* reset skb */
+			skb_trim(*rx_skb, 0);
+			return;
 		}
 
 		data = skb_put(*rx_skb, rcnt);
@@ -1974,14 +2021,14 @@ xhfc_su_irq_handler(struct xhfc *xhfc)
 	 */
 
 	if (xhfc->misc_irq & xhfc->misc_irqmsk) {
-		if (0 == (xhfc->irq_cnt % 1000))
-			printk(KERN_INFO
+		if (debug & DEBUG_HFC_IRQ)
+			printk(KERN_DEBUG
 				"Got %d IRQs  misc %02x/%02x  su_irq:%02x/%02x fifo_irq:%02x/%02x\n",
 				xhfc->irq_cnt, xhfc->misc_irq, xhfc->misc_irqmsk,
 				xhfc->su_irq, xhfc->su_irqmsk, xhfc->fifo_irq,
 				xhfc->fifo_irqmsk);
-	} else
-		printk(KERN_INFO
+	} else if (debug & DEBUG_HFC_IRQ)
+		printk(KERN_DEBUG
 			"misc %02x/%02x  su_irq:%02x/%02x fifo_irq:%02x/%02x\n",
 			xhfc->misc_irq, xhfc->misc_irqmsk, xhfc->su_irq,
 			xhfc->su_irqmsk, xhfc->fifo_irq, xhfc->fifo_irqmsk);
