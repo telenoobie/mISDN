@@ -17,6 +17,7 @@ struct xhfc;
 #define XHFC_NAME_PARAM(x)	xhfc_fpga_get_slot_number(x->hw)
 
 extern int xhfc_fpga_get_slot_number(struct fpga_exp_card_device *);
+extern struct xhfc *xhfc_array[];
 
 
 #undef  XHFC_PORT_LOCKING
@@ -87,6 +88,13 @@ static inline __u8 sread_xhfc(struct xhfc *xhfc,__u8  reg_addr)
 {
     return(read_xhfc(xhfc, reg_addr));
 }
+
+
+extern void  xhfc_NTR_Start(
+               struct xhfc *xhfc);
+
+extern void  xhfc_NTR_Stop(
+               struct xhfc *xhfc);
 
 
 #define XHFC_RESET_CHIP  // ToDo

@@ -5,6 +5,7 @@
 
 #include <linux/module.h>
 #include "xhfc_fpga.h"
+#include "xhfc_mgr.h"
 #include "xhfc_su.h"
 
 #include "fpgaDriverEx/drv_fpga_common.h"
@@ -18,7 +19,7 @@
 
 /* This lock has to be taken all time you access xhfc_array */
 static struct semaphore	 xhfc_array_lock;
-static struct xhfc *xhfc_array[MAX_NUMBER_OF_SLOTS];
+struct xhfc *xhfc_array[MAX_NUMBER_OF_SLOTS];
 
 
 //#define XHFC_DEBUG
@@ -641,6 +642,176 @@ DECLARE_FPGA_HL_DEVICE_DRIVER(drv_xhfc,
                   &xhfc_irq_callback, &xhfc_probe, &xhfc_remove);
 
 
+
+static struct fpga_exp_card_device *xhfc_GetBeta(
+                                    struct xhfc *xhfc)
+{
+    struct fpga_exp_card_device *exp_card_device;
+
+
+    if(!xhfc)
+        return(NULL);
+
+
+    exp_card_device = xhfc->hw;
+
+    if(!exp_card_device->parent_exp_card ||
+       !exp_card_device->parent_exp_card->devices ||
+       !exp_card_device->parent_exp_card->devices[FPGA_DEV_ID])
+    {
+        printk(KERN_WARNING "%s device has no Sibling!\n",
+               __func__);
+        return(NULL);
+    }
+
+    if(exp_card_device->parent_exp_card->devices[FPGA_DEV_ID]->device_type != DEV_EXP_FPGA)
+    {
+        printk(KERN_WARNING "%s sibling not a Beta Device!!!!\n",
+               __func__);
+        return(NULL);
+    }
+
+    return(exp_card_device->parent_exp_card->devices[FPGA_DEV_ID]);
+}
+
+
+static void  xhfc_NTR_Write(
+               struct xhfc *xhfc,
+                  unsigned  ivEnable)
+{
+    struct fpga_exp_card_device *beta_device;
+    unsigned char  lpBuffer[55];
+    int  res;
+
+
+    if(!(beta_device = xhfc_GetBeta(xhfc)))
+        return;
+
+
+    printk(KERN_DEBUG "%s(%d, %d)\n",
+           __func__,
+           beta_device->parent_exp_card->slot_number,
+           ivEnable);
+
+
+    lpBuffer[0] = 2;
+    lpBuffer[1] = 0x11;
+    lpBuffer[2] = ivEnable ? 0x11 : 0;
+
+    res = fpga_write(beta_device,
+                     0,
+                     lpBuffer,
+                     3);
+
+    return;
+}
+
+void  xhfc_NTR_Start(
+              struct xhfc *xhfc)
+{
+    xhfc_NTR_Write(xhfc, 1);
+    return;
+}
+
+void  xhfc_NTR_Stop(
+             struct xhfc *xhfc)
+{
+    xhfc_NTR_Write(xhfc, 0);
+    return;
+}
+
+static int bri_beta_probe(
+           struct device *dev)
+{
+    struct fpga_exp_card_device *exp_card_device;
+
+
+    if(!dev)
+        return(-ENODEV);
+
+    exp_card_device = device_to_fpga_exp_card_device(dev);
+    printk(KERN_INFO "%s called dev %p exp_card_device %p\n",
+           __func__,
+           dev,
+           exp_card_device);
+    if(!exp_card_device)
+        return(-ENODEV);
+
+    if(exp_card_device->device_type != DEV_EXP_FPGA)
+    {
+        printk(KERN_WARNING "%s called for Non Beta device!\n",
+               __func__);
+        return(-EINVAL);
+    }
+
+    if(!exp_card_device->parent_exp_card)
+    {
+        printk(KERN_WARNING "%s called for orphan device!\n",
+               __func__);
+        return(-ENOENT);
+    }
+
+    if(!exp_card_device->parent_exp_card->devices ||
+       !exp_card_device->parent_exp_card->devices[COLOGNE_DEV_ID])
+    {
+        printk(KERN_WARNING "%s device has no Sibling!\n",
+               __func__);
+        return(-EINVAL);
+    }
+
+
+    if(exp_card_device->parent_exp_card->devices[COLOGNE_DEV_ID]->device_type != DEV_COLOGNE)
+        return(-ENODEV);
+
+
+    if(exp_card_device->parent_exp_card->slot_number > MAX_NUMBER_OF_SLOTS)
+    {
+        printk(KERN_WARNING "%s: illegal slot number %d\n",
+               __FUNCTION__,
+               exp_card_device->parent_exp_card->slot_number);
+        return(-EINVAL);
+    }
+
+
+    if(!get_device(dev))
+        return(-ENODEV);
+
+
+    printk(KERN_INFO "%s called successfully for device in slot %d\n",
+           __func__,
+           exp_card_device->parent_exp_card->slot_number);
+
+
+    return(0);
+}
+
+static int bri_beta_remove(
+            struct device *dev)
+{
+    struct fpga_exp_card_device *exp_card_device;
+
+    printk(KERN_INFO "%s\n",
+           __func__);
+
+    if(!dev)
+        return(-EINVAL);
+
+    exp_card_device = device_to_fpga_exp_card_device(dev);
+    if(!exp_card_device)
+        return(-ENODEV);
+
+    return(0);
+}
+
+DECLARE_FPGA_HL_DEVICE_DRIVER(drv_BRI_Beta,
+                             "BRI-BETA",
+                              DEV_EXP_FPGA,
+                              MAX_NUMBER_OF_SLOTS,
+                              NULL,
+                             &bri_beta_probe,
+                             &bri_beta_remove);
+
+
 static int __init  xhfc_fpga_init(void)
 {
     int err;
@@ -648,9 +819,25 @@ static int __init  xhfc_fpga_init(void)
     printk(KERN_INFO DRIVER_NAME ": %s driver %s, %s %s\n",
            __FUNCTION__, xhfc_su_rev, __DATE__, __TIME__);
 
+    xmInitialise();
+
     sema_init(&xhfc_array_lock, 1);
 
-    err = fpga_register_device_driver(&drv_xhfc);
+    if((err = fpga_register_device_driver(&drv_xhfc)) < 0)
+    {
+        printk(KERN_WARNING "%s registration failed. Error %d\n",
+               __func__,
+               err);
+        return(err);
+    }
+
+    if((err = fpga_register_device_driver(&drv_BRI_Beta)) < 0)
+    {
+        printk(KERN_WARNING "%s registration failed. Error %d\n",
+               __func__,
+               err);
+        return(err);
+    }
 
     printk(KERN_INFO "Registering to FPGA device driver returned %d\n", err);
     return(err);
@@ -660,6 +847,7 @@ static void __exit  xhfc_fpga_cleanup(void)
 {
     printk(KERN_INFO DRIVER_NAME ": %s\n", __func__);
 
+    fpga_unregister_device_driver(&drv_BRI_Beta);
     fpga_unregister_device_driver(&drv_xhfc);
 }
 

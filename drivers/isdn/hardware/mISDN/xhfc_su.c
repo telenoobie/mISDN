@@ -37,6 +37,7 @@
 #ifdef CONFIG_MISDN_XHFC_FPGA
 #include "xhfc_fpga.h"
 #endif
+#include "xhfc_mgr.h"
 #include "xhfc_su.h"
 
 const char *xhfc_su_rev = "Revision: 0.2.0 (socket), 2010-06-06";
@@ -2074,10 +2075,12 @@ void xhfc_bh_handler_workfunction(struct work_struct *ipWork)
 	su_irq = xhfc->su_irq & xhfc->su_irqmsk;
 	xhfc->su_irq = 0;
 	if (su_irq) {
+		unsigned  lvPortsUp;
+		lvPortsUp = 0;
 		for (i = 0; i < xhfc->num_ports; i++) {
 			pmsk = 1 << i;
-			if (!(su_irq & pmsk))
-				continue;
+			if (su_irq & pmsk)
+			{
 			write_xhfc(xhfc, R_SU_SEL, i);
 			reg = read_xhfc(xhfc, A_SU_RD_STA);
 			dch = &xhfc->port[i].dch;
@@ -2107,7 +2110,14 @@ void xhfc_bh_handler_workfunction(struct work_struct *ipWork)
 				ph_state(dch);
 				xhfc_lock(xhfc);
 			}
+			}
+			if((xhfc->port[i].mode & PORT_MODE_TE) &&
+			  ((xhfc->port[i].dch.state == 6) ||
+			   (xhfc->port[i].dch.state == 7)))
+				lvPortsUp += 1;
 		}
+		xmStateChange(xhfc,
+		              lvPortsUp);
 	}
 	xhfc_unlock(xhfc);
 #ifdef L1_CALLBACK_BH
