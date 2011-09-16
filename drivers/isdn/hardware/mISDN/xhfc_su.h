@@ -131,6 +131,14 @@ struct port {
 	__u8 st_ctrl3;
 };
 
+#ifdef L1_CALLBACK_BH
+struct l1list_e {
+	struct l1list_e *next;
+	struct dchannel *dch;
+	u_int 		event;
+};
+#endif
+
 /* hardware structure */
 struct xhfc {
 	XHFC_HW_TYPE(hw);		/* backpointer to hardware struct */
@@ -145,6 +153,10 @@ struct xhfc {
 #ifdef XHFC_USE_BH_WORKQUEUE
 	struct workqueue_struct *workqueue;
 	struct work_struct  bh_handler_workstructure;
+#endif
+#ifdef L1_CALLBACK_BH
+	spinlock_t	l1lock;		/* lock for l1list */
+	struct l1list_e	*l1list;	/* list of L1 events */
 #endif
 	int num_ports;			/* number of S and U interfaces */
 	int channels;			/* 4 channels per port: B1/B2/D/E */

@@ -44,6 +44,16 @@ const char *xhfc_su_rev = "Revision: 0.2.0 (socket), 2010-06-06";
 /* modules params */
 static unsigned int debug;
 static int pcm = -1;
+#ifndef XHFC_RUN_TIMER_IRQ
+/*
+ * we allow to overwrite this with a parameter
+ * default 0 no timer interupt used
+ * 1...4 default chip specific interval
+ * 5...15 user defined interval (5 8ms 6 16ms ... 16 8192 ms
+ */
+static int timer_irq;
+#endif
+
 
 /* driver globbls */
 static int xhfc_cnt;
@@ -52,6 +62,9 @@ MODULE_AUTHOR("Martin Bachem");
 MODULE_LICENSE("GPL");
 module_param(debug, uint, S_IRUGO | S_IWUSR);
 module_param(pcm, uint, S_IRUGO | S_IWUSR);
+#ifndef XHFC_RUN_TIMER_IRQ
+module_param(timer_irq, uint, S_IRUGO); /* no runtime change */
+#endif
 
 /* prototypes for static functions */
 static int xhfc_l2l1B(struct mISDNchannel *ch, struct sk_buff *skb);
@@ -134,11 +147,11 @@ xhfc_enable_interrupts(struct xhfc *xhfc)
 	write_xhfc(xhfc, R_SU_IRQMSK, xhfc->su_irqmsk);
 
 	/* use defined timer interval */
-	write_xhfc(xhfc, R_TI_WD, xhfc->ti_wd);
-#ifdef XHFC_RUN_TIMER_IRQ
-	SET_V_TI_IRQMSK(xhfc->misc_irqmsk, 1);
-	write_xhfc(xhfc, R_MISC_IRQMSK, xhfc->misc_irqmsk);
-#endif
+	if (timer_irq) {
+		write_xhfc(xhfc, R_TI_WD, xhfc->ti_wd);
+		SET_V_TI_IRQMSK(xhfc->misc_irqmsk, 1);
+		write_xhfc(xhfc, R_MISC_IRQMSK, xhfc->misc_irqmsk);
+	}
 
 #ifdef XHFC_CLEAR_ALL_IRQ_BITS
 	/* clear all pending interrupts bits */
@@ -284,6 +297,7 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 	__u8 ch_idx = (port->idx * 4) + (bch->nr - 1);
 	__u8 r_slot = 0;
 	__u8 a_sl_cfg = 0;
+	__u8 enable = 0;
 
 	printk(KERN_INFO "%s: B%d (ch_idx:%d) set timeslots %d/%d --> %d/%d\n",
 		__func__, bch->nr, ch_idx, bch->pcm_tx, bch->pcm_rx, tx_slot, rx_slot);
@@ -353,19 +367,24 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 		}
 		bch->pcm_rx = rx_slot;
 	}
+	if ((bch->pcm_tx == MISDN_PCM_SLOT_DISABLE) &&
+	    (bch->pcm_rx == MISDN_PCM_SLOT_DISABLE))
+		enable = 0;
+	else
+		enable = 1;
 	if (bch->nr == 1) {
 		/* connect B1-SU RX with PCM TX */
 		setup_fifo(xhfc, port->idx * 8, 0xC6, 0, 0, 0);
 		/* connect B1-SU TX with PCM RX */
 		setup_fifo(xhfc, port->idx * 8 + 1, 0xC6, 0, 0, 0);
-		setup_su(xhfc, port->idx, 0, 1);
+		setup_su(xhfc, port->idx, 0, enable);
         } else {
 		/* connect B2-SU RX with PCM TX */
 		setup_fifo(xhfc, port->idx * 8 + 2, 0xC6, 0, 0, 0);
 		/* connect B2-SU TX with PCM RX */
 		setup_fifo(xhfc, port->idx * 8 + 3, 0xC6, 0, 0, 0);
-		setup_su(xhfc, port->idx, 1, 1);
-        }
+		setup_su(xhfc, port->idx, 1, enable);
+	}
 	xhfc_port_unlock_bh(port);
 	return 0;
 }
@@ -389,7 +408,7 @@ xhfc_pcm_ch_setup(struct xhfc * xhfc, __u8 channel)
 
 
 /*
- * init BChannel prototol
+ * init BChannel protocol
  */
 static int
 xhfc_setup_bch(struct bchannel *bch, int protocol)
@@ -750,6 +769,12 @@ static int xhfc_hw_initialise(struct xhfc *xhfc)
 	if (xhfc->pcm > -1)
 		xhfc_pcm_init(xhfc);
 
+#ifndef XHFC_RUN_TIMER_IRQ
+	if (timer_irq > 4 && timer_irq < 16) {  /* set from parameter */
+		SET_V_EV_TS(xhfc->ti_wd, timer_irq);
+	}
+#endif
+	write_xhfc(xhfc, R_TI_WD, xhfc->ti_wd);
 	/* perfom short irq test */
 	xhfc->testirq = 1;
 	xhfc->irq_cnt = 0;
@@ -875,6 +900,9 @@ xhfc_release_instance(struct xhfc *hw)
 {
 	struct port *p;
 	int i;
+#ifdef L1_CALLBACK_BH
+	u_long flags;
+#endif
 
 	if (debug)
 		printk(KERN_DEBUG "%s: %s\n", DRIVER_NAME, __func__);
@@ -895,6 +923,16 @@ xhfc_release_instance(struct xhfc *hw)
 	}
 
 	if (hw) {
+#ifdef L1_CALLBACK_BH
+		spin_lock_irqsave(&hw->l1lock, flags);
+		while (hw->l1list) {
+			struct l1list_e	*l1e = hw->l1list;
+
+			hw->l1list = l1e->next;
+			kfree(l1e);
+		}
+		spin_unlock_irqrestore(&hw->l1lock, flags);
+#endif
 		kfree(hw->port);
 		kfree(hw);
 	}
@@ -904,6 +942,58 @@ xhfc_release_instance(struct xhfc *hw)
 /*
  * Layer 1 callback function
  */
+#ifdef L1_CALLBACK_BH
+/* since this could be called from atomic context we need queue the event
+ * and handle it in the workqueue function
+ */
+
+static int
+xhfc_l1callback_bh(struct dchannel *dch, u_int cmd)
+{
+	struct port *p = dch->hw;
+	struct xhfc *xhfc = p->xhfc;
+	struct l1list_e *l1e, *last;
+	u_long flags;
+
+	if (debug & DEBUG_HW)
+		printk(KERN_DEBUG "%s: L1 event %x\n", p->name, cmd);
+	switch (cmd) {
+	case INFO3_P8:
+	case INFO3_P10:
+	case HW_RESET_REQ:
+	case HW_POWERUP_REQ:
+		return 0;
+	default:
+		break;
+	}
+	/* we could come from a timer, so atomic is needed */
+	l1e = kzalloc(sizeof(struct l1list_e), GFP_ATOMIC);
+	if (!l1e) {
+		printk(KERN_WARNING
+			"%s: No memory for L1 event %x\n", p->name, cmd);
+		return -ENOMEM;
+	}
+	l1e->dch = dch;
+	l1e->event = cmd;
+	spin_lock_irqsave(&xhfc->l1lock, flags);
+	last = xhfc->l1list;
+	while(last) {
+		if (last->next == NULL)
+			break;
+		last = last->next;
+	}
+	if (last)
+		last->next = l1e;
+	else
+		xhfc->l1list = l1e;
+	spin_unlock_irqrestore(&xhfc->l1lock, flags);
+	xhfc_bh_handler((unsigned long)xhfc);
+	if (debug & DEBUG_HW)
+		printk(KERN_DEBUG "%s: queued L1 event %x\n", p->name, cmd);
+	return 0;
+}
+#endif
+
 static int
 xhfc_l1callback(struct dchannel *dch, u_int cmd)
 {
@@ -1213,7 +1303,11 @@ open_dchannel(struct port *p, struct mISDNchannel *ch, struct channel_req *rq)
 
 		if (IS_ISDN_P_TE(rq->protocol)) {
 			p->mode |= PORT_MODE_TE;
+#ifdef L1_CALLBACK_BH
+			err = create_l1(&p->dch, xhfc_l1callback_bh);
+#else
 			err = create_l1(&p->dch, xhfc_l1callback);
+#endif
 			if (err)
 				return err;
 		} else
@@ -1895,6 +1989,9 @@ void xhfc_bh_handler_workfunction(struct work_struct *ipWork)
 {
 	struct xhfc *xhfc = container_of(ipWork, struct xhfc, bh_handler_workstructure);
 #endif /* XHFC_USE_BH_TASKLET */
+#ifdef L1_CALLBACK_BH
+	u_long flags;
+#endif
 	int i;
 	__u8 su_state;
 	struct dchannel *dch;
@@ -1948,8 +2045,20 @@ void xhfc_bh_handler_workfunction(struct work_struct *ipWork)
 			}
 		}
 	}
-
 	xhfc_unlock(xhfc);
+#ifdef L1_CALLBACK_BH
+	spin_lock_irqsave(&xhfc->l1lock, flags);
+	while(xhfc->l1list) {
+		struct l1list_e	*l1e = xhfc->l1list;
+
+		xhfc->l1list = l1e->next;
+		spin_unlock_irqrestore(&xhfc->l1lock, flags);
+		xhfc_l1callback(l1e->dch, l1e->event);
+		kfree(l1e);
+		spin_lock_irqsave(&xhfc->l1lock, flags);
+	}
+	spin_unlock_irqrestore(&xhfc->l1lock, flags);
+#endif
 	return;
 }
 
@@ -2020,18 +2129,22 @@ xhfc_su_irq_handler(struct xhfc *xhfc)
 	 *   - Fifo FrameEnd interrupts (only at rx fifos enabled)
 	 */
 
-	if (xhfc->misc_irq & xhfc->misc_irqmsk) {
-		if (debug & DEBUG_HFC_IRQ)
-			printk(KERN_DEBUG
-				"Got %d IRQs  misc %02x/%02x  su_irq:%02x/%02x fifo_irq:%02x/%02x\n",
-				xhfc->irq_cnt, xhfc->misc_irq, xhfc->misc_irqmsk,
-				xhfc->su_irq, xhfc->su_irqmsk, xhfc->fifo_irq,
-				xhfc->fifo_irqmsk);
-	} else if (debug & DEBUG_HFC_IRQ)
+	if ((xhfc->misc_irq & xhfc->misc_irqmsk) == M_TI_IRQ &&
+	    (debug & DEBUG_HFC_IRQ) && !(xhfc->irq_cnt % 1000))
+		/* we got a timer irq only, rate limit the printouts */
 		printk(KERN_DEBUG
-			"misc %02x/%02x  su_irq:%02x/%02x fifo_irq:%02x/%02x\n",
-			xhfc->misc_irq, xhfc->misc_irqmsk, xhfc->su_irq,
-			xhfc->su_irqmsk, xhfc->fifo_irq, xhfc->fifo_irqmsk);
+			"%d IRQs misc:%02x/%02x su:%02x/%02x fifo:%02x/%02x\n",
+			xhfc->irq_cnt, xhfc->misc_irq, xhfc->misc_irqmsk,
+			xhfc->su_irq, xhfc->su_irqmsk, xhfc->fifo_irq,
+			xhfc->fifo_irqmsk);
+	else if ((((xhfc->misc_irq & xhfc->misc_irqmsk) != M_TI_IRQ) ||
+	    (xhfc->su_irq & xhfc->su_irqmsk) ||
+	    (xhfc->fifo_irq & xhfc->fifo_irqmsk)) && (debug & DEBUG_HFC_IRQ))
+		printk(KERN_DEBUG
+			"%d IRQs misc:%02x/%02x su:%02x/%02x fifo:%02x/%02x\n",
+			xhfc->irq_cnt, xhfc->misc_irq, xhfc->misc_irqmsk,
+			xhfc->su_irq, xhfc->su_irqmsk, xhfc->fifo_irq,
+			xhfc->fifo_irqmsk);
 
 	if ((xhfc->misc_irq & xhfc->misc_irqmsk) ||
 	    (xhfc->su_irq & xhfc->su_irqmsk) ||
