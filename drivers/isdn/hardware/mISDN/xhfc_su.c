@@ -299,8 +299,11 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 	__u8 a_sl_cfg = 0;
 	__u8 enable = 0;
 
-	printk(KERN_INFO "%s: B%d (ch_idx:%d) set timeslots %d/%d --> %d/%d\n",
-		__func__, bch->nr, ch_idx, bch->pcm_tx, bch->pcm_rx, tx_slot, rx_slot);
+	if (debug & DEBUG_HW)
+		printk(KERN_DEBUG "B%d idx:%d set tx/rx slot %d/%d --> %d/%d\n",
+			bch->nr, ch_idx, bch->pcm_tx, bch->pcm_rx,
+			tx_slot, rx_slot);
+
 	xhfc_port_lock_bh(port);
 	if (tx_slot != MISDN_PCM_SLOT_IGNORE && tx_slot != bch->pcm_tx) {
 		// If there is already a slot transmitting, disable it.
@@ -328,8 +331,6 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 			SET_V_CH_SNUM(a_sl_cfg, ch_idx);
 			SET_V_ROUT(a_sl_cfg, 0x03);	/* TX */
 			write_xhfc(xhfc, A_SL_CFG, a_sl_cfg);
-			printk(KERN_INFO "%s: B%d TX: rslot:%02x a_sl_cfg:%02x\n",
-			        __func__, bch->nr, r_slot, a_sl_cfg);
 		}
 		bch->pcm_tx = tx_slot;
 	}
@@ -362,8 +363,6 @@ xhfc_set_pcm_tx_rx(struct bchannel *bch, int tx_slot, int rx_slot)
 			SET_V_CH_SNUM(a_sl_cfg, ch_idx);
 			SET_V_ROUT(a_sl_cfg, 0x03);	/* RX */
 			write_xhfc(xhfc, A_SL_CFG, a_sl_cfg);
-			printk(KERN_INFO "%s: B%d RX: rslot:%02x a_sl_cfg:%02x\n",
-			        __func__, bch->nr, r_slot, a_sl_cfg);
 		}
 		bch->pcm_rx = rx_slot;
 	}
@@ -570,6 +569,18 @@ xhfc_ph_command(struct port *port, u_char command)
 		/* enable D RX timeslot on STIO1 */
 		write_xhfc(xhfc, A_SL_CFG, port->idx * 8 + 5 + 0xC0);
 		printk(KERN_INFO "LOOPBACK D rx:ST01 tx:ST02\n");
+		break;
+	case L1_TESTLOOP_OFF:
+		xhfc_set_pcm_tx_rx(&port->bch[0], MISDN_PCM_SLOT_DISABLE,
+			MISDN_PCM_SLOT_DISABLE);
+		xhfc_set_pcm_tx_rx(&port->bch[1], MISDN_PCM_SLOT_DISABLE,
+			MISDN_PCM_SLOT_DISABLE);
+		/* D-channel */
+		write_xhfc(xhfc, R_SLOT, port->idx * 8 + 4);
+		write_xhfc(xhfc, A_SL_CFG, port->idx * 8 + 4);
+		write_xhfc(xhfc, R_SLOT, port->idx * 8 + 5);
+		write_xhfc(xhfc, A_SL_CFG, port->idx * 8 + 5);
+		xhfc_setup_dch(&port->dch);
 		break;
 	}
 }
@@ -1406,7 +1417,8 @@ channel_ctrl(struct port *p, struct mISDN_ctrl_req *cq)
 	case MISDN_CTRL_GETOP:
 		cq->op = MISDN_CTRL_LOOP |
 			MISDN_CTRL_CONNECT | MISDN_CTRL_DISCONNECT |
-			MISDN_CTRL_GET_PCM_SLOTS | MISDN_CTRL_SET_PCM_SLOTS;
+			MISDN_CTRL_GET_PCM_SLOTS | MISDN_CTRL_SET_PCM_SLOTS |
+			MISDN_CTRL_L1_TIMER3;
 		break;
 	case MISDN_CTRL_GET_PCM_SLOTS:
 		bch = get_bchannel4number(p, cq->p1);
@@ -1443,6 +1455,9 @@ channel_ctrl(struct port *p, struct mISDN_ctrl_req *cq)
 			xhfc_ph_command(p, L1_TESTLOOP_OFF);
 		}
 		xhfc_port_unlock_bh(p);
+		break;
+	case MISDN_CTRL_L1_TIMER3:
+		ret = l1_event(p->dch.l1, HW_TIMER3_VALUE | (cq->p1 & 0xff));
 		break;
 	default:
 		printk(KERN_WARNING "%s: %s: unknown Op %x\n",
