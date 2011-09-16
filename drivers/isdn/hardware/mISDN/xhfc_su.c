@@ -2033,7 +2033,7 @@ void xhfc_bh_handler_workfunction(struct work_struct *ipWork)
 	u_long flags;
 #endif
 	int i;
-	__u8 su_state;
+	__u8 su_state, pmsk, su_irq, reg;
 	struct dchannel *dch;
 
 	xhfc_lock(xhfc);
@@ -2071,14 +2071,38 @@ void xhfc_bh_handler_workfunction(struct work_struct *ipWork)
 	}
 
 	/* su interrupt */
-	if (xhfc->su_irq & xhfc->su_irqmsk) {
-		xhfc->su_irq = 0;
+	su_irq = xhfc->su_irq & xhfc->su_irqmsk;
+	xhfc->su_irq = 0;
+	if (su_irq) {
 		for (i = 0; i < xhfc->num_ports; i++) {
+			pmsk = 1 << i;
+			if (!(su_irq & pmsk))
+				continue;
 			write_xhfc(xhfc, R_SU_SEL, i);
-			su_state = read_xhfc(xhfc, A_SU_RD_STA);
+			reg = read_xhfc(xhfc, A_SU_RD_STA);
 			dch = &xhfc->port[i].dch;
-			if (GET_V_SU_STA(su_state) != dch->state) {
-				dch->state = GET_V_SU_STA(su_state);
+			if (debug & DEBUG_HW)
+				printk(KERN_DEBUG "%s: state:%02x new %02x\n",
+					xhfc->port[i].name, dch->state, reg);
+			su_state = GET_V_SU_STA(reg);
+			if (su_state != dch->state) {
+				if (su_state == 7 && GET_V_SU_INFO0(reg)) {
+					if (debug & DEBUG_HW)
+						printk(KERN_DEBUG
+							"%s: INFO 0 in F7\n",
+							xhfc->port[i].name);
+					xhfc_unlock(xhfc);
+					msleep(1);
+					xhfc_lock(xhfc);
+					reg = read_xhfc(xhfc, A_SU_RD_STA);
+					if (debug & DEBUG_HW)
+						printk(KERN_DEBUG
+							"%s: stat %02x\n",
+							xhfc->port[i].name,
+							reg);
+					su_state = GET_V_SU_STA(reg);
+				}
+				dch->state = su_state;
 				xhfc_unlock(xhfc);
 				ph_state(dch);
 				xhfc_lock(xhfc);
