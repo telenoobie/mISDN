@@ -33,6 +33,10 @@
 #define MGR_PH_NOTREADY	17
 
 #define DATIMER_VAL	10000
+#define T200_VAL	1000
+#define T201_VAL	T200_VAL
+#define T202_VAL	2000
+#define N202_VAL	3
 
 static 	u_int	*debug;
 
@@ -468,7 +472,7 @@ tei_id_request(struct FsmInst *fi, int event, void *arg)
 	put_tei_msg(tm->mgr, ID_REQUEST, tm->ri, GROUP_TEI);
 	mISDN_FsmChangeState(fi, ST_TEI_IDREQ);
 	mISDN_FsmAddTimer(&tm->timer, tm->tval, EV_TIMER, NULL, 1);
-	tm->nval = 3;
+	tm->nval = N202_VAL;
 }
 
 static void
@@ -813,7 +817,7 @@ create_new_tei(struct manager *mgr, int tei, int sapi)
 	l2->tm->tei_m.printdebug = tei_debug;
 	l2->tm->tei_m.fsm = &teifsmn;
 	l2->tm->tei_m.state = ST_TEI_NOP;
-	l2->tm->tval = 2000; /* T202  2 sec */
+	l2->tm->tval = T201_VAL; /* T201  2 sec */
 	mISDN_FsmInitTimer(&l2->tm->tei_m, &l2->tm->timer);
 	write_lock_irqsave(&mgr->lock, flags);
 	id = get_free_id(mgr);
@@ -1057,7 +1061,7 @@ create_teimgr(struct manager *mgr, struct channel_req *crq)
 	if (crq->protocol == ISDN_P_LAPD_TE) {
 		l2->tm->tei_m.fsm = &teifsmu;
 		l2->tm->tei_m.state = ST_TEI_NOP;
-		l2->tm->tval = 1000; /* T201  1 sec */
+		l2->tm->tval = T202_VAL; /* T202  2 sec */
 		if (test_bit(OPTION_L2_PMX, &opt))
 			l1rq.protocol = ISDN_P_TE_E1;
 		else
@@ -1065,7 +1069,7 @@ create_teimgr(struct manager *mgr, struct channel_req *crq)
 	} else {
 		l2->tm->tei_m.fsm = &teifsmn;
 		l2->tm->tei_m.state = ST_TEI_NOP;
-		l2->tm->tval = 2000; /* T202  2 sec */
+		l2->tm->tval = T201_VAL; /* T201  1 sec */
 		if (test_bit(OPTION_L2_PMX, &opt))
 			l1rq.protocol = ISDN_P_NT_E1;
 		else
