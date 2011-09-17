@@ -7,6 +7,7 @@
 #include "xhfc_fpga.h"
 #include "xhfc_mgr.h"
 #include "xhfc_su.h"
+#include "xhfc_sync.h"
 
 #include "fpgaDriverEx/drv_fpga_common.h"
 #include "fpgaDriverEx/drv_fpga_hl_device_driver.h"
@@ -81,8 +82,49 @@ int xhfc_fpga_get_slot_number(struct fpga_exp_card_device *fecd)
 // used when creating the control byte to talk to different chips.
 #define XHFC_DEVICE_ID 0x00
 
+// Task_10668 - PRI clock Sync
+int alternative_clock_source(unsigned status)
+{
+    int slot_num, i, ret = 0;
+    struct xhfc *xhfc;
+    int lvPortsUp = 0, portsSync;
 
+    for (slot_num = 0; slot_num < MAX_NUMBER_OF_SLOTS; slot_num++)
+    {
+        down_interruptible(&xhfc_array_lock);
+        xhfc = xhfc_array[slot_num];
+        if (!xhfc) {
+            up(&xhfc_array_lock);
+            continue;
+        }
 
+        if (status) {
+            for (i = 0; i < xhfc->num_ports; i++) {
+                if((xhfc->port[i].mode & PORT_MODE_TE) && ((xhfc->port[i].dch.state == 6) || (xhfc->port[i].dch.state == 7)))
+                    lvPortsUp += 1;
+            }
+            if (lvPortsUp) {
+                printk(KERN_DEBUG "%s: Start sync with BRI port in slot %d. lvPortsUp %d\n", __func__, slot_num, lvPortsUp);
+                portsSync = 0;
+                xmStateChange(xhfc, lvPortsUp, portsSync);
+                ret = 1;
+
+            }
+            else
+                printk(KERN_DEBUG "%s: No BRI ports available to Sync\n", __func__);
+        }
+        else {
+            lvPortsUp = 0;
+            portsSync = 1;
+            printk(KERN_DEBUG "%s: Stop sync with BRI port in slot %d\n", __func__, slot_num);
+            xmStateChange(xhfc, lvPortsUp, portsSync);
+        }
+        up(&xhfc_array_lock);
+    }
+    return ret;
+}
+EXPORT_SYMBOL(alternative_clock_source);
+//\ Task_10668
 
 inline  void xhfc_PrintBuffer(
                unsigned char *ipBuffer,

@@ -6,6 +6,7 @@
 #include <linux/module.h>
 #include "xhfc_fpga.h"
 #include "xhfc_su.h"
+#include "xhfc_sync.h"
 
 #include "fpgaDriverEx/drv_fpga_common.h"
 #include "fpgaDriverEx/drv_fpga_hl_device_driver.h"
@@ -80,10 +81,25 @@ inline void  fpgaClockSet(
     return;
 }
 
+// Task_10668 - PRI clock Sync
+void indicate_clock_sync(unsigned slot, unsigned state)
+{
+    if (state)
+        gvSyncSlot = slot;
+    else
+        gvSyncSlot = ~0;
+
+    gvActive[slot] = state;
+    if (debug)
+        printk(KERN_DEBUG "%s: Slot %d State = %d\n", __func__, slot, gvSyncSlot);
+}
+EXPORT_SYMBOL(indicate_clock_sync);
+//\ Task_10668
 
 void  xmStateChange(
  const struct xhfc *xhfc,
-    const unsigned  ivPortsUp)
+    const unsigned  ivPortsUp,
+    unsigned priSync)
 {
     unsigned  ivSlot;
     unsigned  lvSlot;
@@ -112,7 +128,14 @@ void  xmStateChange(
         fpgaClockReSet(gvSyncSlot);
         xhfc_NTR_Stop(xhfc);
         gvSyncSlot = ~0;
+        printk(KERN_DEBUG "our clock source has gone...");
 
+        if (priSync) {
+            printk(KERN_DEBUG " will sync with PRI clock\n");
+            return;
+        }
+
+        printk(" so search for an alternative\n");
         do
         /* ...so search for an alternative */
         {
@@ -127,10 +150,10 @@ void  xmStateChange(
     if((gvSyncSlot == ~0) && gvActive[lvSlot])
     /* Not currently Synced, and clock available, so Sync */
     {
+        printk(KERN_DEBUG "Not currently Synced, and clock available, so Sync...\n");
         xhfc_NTR_Start(xhfc_array[lvSlot]);
         fpgaClockSet((gvSyncSlot = lvSlot));
     }
-
 
     return;
 }

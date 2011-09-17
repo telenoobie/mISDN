@@ -6,9 +6,9 @@
 
 extern void  xmStateChange(
         const struct xhfc *xhfc,
-           const unsigned  ivPortsUp);
+           const unsigned  ivPortsUp,
+           unsigned priSync);
 
 extern void  xmInitialise(void);
-
 
 #endif /* __XHFC_MGR_H__ */

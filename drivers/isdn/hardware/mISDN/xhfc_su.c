@@ -2116,8 +2116,7 @@ void xhfc_bh_handler_workfunction(struct work_struct *ipWork)
 			   (xhfc->port[i].dch.state == 7)))
 				lvPortsUp += 1;
 		}
-		xmStateChange(xhfc,
-		              lvPortsUp);
+		xmStateChange(xhfc, lvPortsUp, 0);
 	}
 	xhfc_unlock(xhfc);
 #ifdef L1_CALLBACK_BH
