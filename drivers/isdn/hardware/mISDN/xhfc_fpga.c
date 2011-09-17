@@ -719,7 +719,7 @@ void  xhfc_NTR_Stop(
     xhfc_NTR_Write(xhfc, 0);
     return;
 }
-
+/*
 static int bri_beta_probe(
            struct device *dev)
 {
@@ -810,7 +810,7 @@ DECLARE_FPGA_HL_DEVICE_DRIVER(drv_BRI_Beta,
                               NULL,
                              &bri_beta_probe,
                              &bri_beta_remove);
-
+ */
 
 static int __init  xhfc_fpga_init(void)
 {
@@ -830,7 +830,7 @@ static int __init  xhfc_fpga_init(void)
                err);
         return(err);
     }
-
+/*
     if((err = fpga_register_device_driver(&drv_BRI_Beta)) < 0)
     {
         printk(KERN_WARNING "%s registration failed. Error %d\n",
@@ -838,7 +838,7 @@ static int __init  xhfc_fpga_init(void)
                err);
         return(err);
     }
-
+ */
     printk(KERN_INFO "Registering to FPGA device driver returned %d\n", err);
     return(err);
 }
@@ -846,8 +846,9 @@ static int __init  xhfc_fpga_init(void)
 static void __exit  xhfc_fpga_cleanup(void)
 {
     printk(KERN_INFO DRIVER_NAME ": %s\n", __func__);
-
+/*
     fpga_unregister_device_driver(&drv_BRI_Beta);
+ */
     fpga_unregister_device_driver(&drv_xhfc);
 }
 
