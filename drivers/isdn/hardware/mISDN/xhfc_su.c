@@ -665,6 +665,12 @@ setup_instance(struct xhfc *xhfc, struct device *parent)
 	err = -ENOMEM;
 	xhfc->port =
 	    kzalloc(sizeof(struct port) * xhfc->num_ports, GFP_KERNEL);
+	if (!xhfc->port) {
+		printk(KERN_ERR "%s: %s: no kmem for setup_instance\n",
+		       DRIVER_NAME, __FUNCTION__);
+		goto out;
+	}
+
 	for (i = 0; i < xhfc->num_ports; i++) {
 		p = xhfc->port + i;
 		p->idx = i;

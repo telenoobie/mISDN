@@ -63,6 +63,11 @@ static void hwskel_ph_info(struct port * p) {
         phi = kzalloc(sizeof(struct ph_info) +
                 dch->dev.nrbchan * sizeof(struct ph_info_ch),
                 GFP_ATOMIC);
+	if (!phi) {
+		printk(KERN_ERR "%s: %s: no kmem for ph_info\n",
+		       DRIVER_NAME, __FUNCTION__);
+		return;
+	}
 
         phi->dch.ch.protocol = p->protocol;
         phi->dch.ch.Flags = dch->Flags;
