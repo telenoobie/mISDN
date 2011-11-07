@@ -97,7 +97,7 @@ extern int		tei_l2(struct layer2 *, u_int, u_long arg);
 /* from tei.c */
 extern int 		l2_tei(struct layer2 *, u_int, u_long arg);
 extern void 		TEIrelease(struct layer2 *);
-extern int 		TEIInit(u_int *);
+extern int 		TEIInit(u_int *) __must_check;
 extern void 		TEIFree(void);
 
 #define MAX_L2HEADER_LEN 4

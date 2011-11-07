@@ -69,9 +69,9 @@ struct Bprotocol	*get_Bprotocol4id(u_int);
 extern int	mISDN_inittimer(u_int *);
 extern void	mISDN_timer_cleanup(void);
 
-extern int	l1_init(u_int *);
+extern int	l1_init(u_int *) __must_check;
 extern void	l1_cleanup(void);
-extern int 	Isdnl2_Init(u_int *);
+extern int 	Isdnl2_Init(u_int *) __must_check;
 extern void	Isdnl2_cleanup(void);
 
 extern void	mISDN_init_clock(u_int *);
