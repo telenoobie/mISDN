@@ -357,6 +357,12 @@ static struct usb_device_id hfcsusb_idtab[] = {
 			   "Billion tiny USB ISDN TA 128"}),
 	},
 	{
+	 USB_DEVICE(0x1ae7, 0x0525),
+	 .driver_info = (unsigned long) &((struct hfcsusb_vdata)
+			  {LED_SCHEME1, {0x80, -64, -32, -16},
+			   "X-TENSIONS USB ISDN TA XC-525"}),
+	},
+	{
 	 USB_DEVICE(0x0742, 0x2008),
 	 .driver_info = (unsigned long) &((struct hfcsusb_vdata)
 			  {LED_SCHEME1, {4, 0, 2, 1},
