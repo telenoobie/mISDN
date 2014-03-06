@@ -343,7 +343,7 @@ get_next_dframe(struct dchannel *dch)
 }
 EXPORT_SYMBOL(get_next_dframe);
 
-static void
+void
 confirm_Bsend(struct bchannel *bch)
 {
 	struct sk_buff	*skb;
@@ -365,6 +365,7 @@ confirm_Bsend(struct bchannel *bch)
 	skb_queue_tail(&bch->rqueue, skb);
 	schedule_event(bch, FLG_RECVQUEUE);
 }
+EXPORT_SYMBOL(confirm_Bsend);
 
 int
 get_next_bframe(struct bchannel *bch)
