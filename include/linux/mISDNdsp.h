@@ -11,9 +11,8 @@ struct mISDN_dsp_element {
 	char	*name;
 	void	*(*new)(const char *arg);
 	void	(*free)(void *p);
-	void	(*process_tx)(void *p, unsigned char *data, int len);
-	void	(*process_rx)(void *p, unsigned char *data, int len,
-			unsigned int txlen);
+	u32	(*process_tx)(void *p, unsigned char *data, int len);
+	void	(*process_rx)(void *p, unsigned char *data, int len, u32 id);
 	int	num_args;
 	struct mISDN_dsp_element_arg
 		*args;

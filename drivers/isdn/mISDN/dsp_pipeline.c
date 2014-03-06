@@ -336,20 +336,23 @@ _out:
 	return 0;
 }
 
-void dsp_pipeline_process_tx(struct dsp_pipeline *pipeline, u8 *data, int len)
+u32 dsp_pipeline_process_tx(struct dsp_pipeline *pipeline, u8 *data, int len)
 {
 	struct dsp_pipeline_entry *entry;
+	u32 id = MISDN_ID_ANY;
 
 	if (!pipeline)
-		return;
+		return id;
 
 	list_for_each_entry(entry, &pipeline->list, list)
 		if (entry->elem->process_tx)
-			entry->elem->process_tx(entry->p, data, len);
+			id = entry->elem->process_tx(entry->p, data, len);
+
+	return id;
 }
 
 void dsp_pipeline_process_rx(struct dsp_pipeline *pipeline, u8 *data, int len,
-			     unsigned int txlen)
+			     u32 id)
 {
 	struct dsp_pipeline_entry *entry;
 
@@ -358,5 +361,5 @@ void dsp_pipeline_process_rx(struct dsp_pipeline *pipeline, u8 *data, int len,
 
 	list_for_each_entry_reverse(entry, &pipeline->list, list)
 		if (entry->elem->process_rx)
-			entry->elem->process_rx(entry->p, data, len, txlen);
+			entry->elem->process_rx(entry->p, data, len, id);
 }

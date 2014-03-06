@@ -93,13 +93,16 @@ dsp_cancel_free(struct ec_prv *p)
 	kfree(p);
 }
 
-static inline void dsp_cancel_tx(struct ec_prv *p, u8 *data, int len)
+#define MISDN_TX_MAGIC 0xfffe
+
+static inline u32 dsp_cancel_tx(struct ec_prv *p, u8 *data, int len)
 {
 	u8 *d;
-	int w;
+	u16 w;
+	u32 id;
 
 	if (!p || !data)
-		return;
+		return MISDN_ID_ANY;
 
 	d = p->txbuff;
 	w = p->tx_W;
@@ -108,24 +111,30 @@ static inline void dsp_cancel_tx(struct ec_prv *p, u8 *data, int len)
 		w = (w + 1) & ECHOCAN_BUFF_MASK;
 	}
 	p->tx_W = w;
+	/* set ID to end of tx data */
+	id = (MISDN_TX_MAGIC << 16) | p->tx_W;
+
+	return id;
 }
 
 /** Processes one TX- and one RX-packet with echocancellation */
-static inline void dsp_cancel_rx(struct ec_prv *p, u8 *data, int len, unsigned int txlen)
+static inline void dsp_cancel_rx(struct ec_prv *p, u8 *data, int len, u32 id)
 {
 	int16_t	rxlin, txlin;
 	int	r;
 	u8	*s;
 
+
 	if (!p || !data)
 		return;
 
-	if (txlen > 0xf000)
-		txlen = 0; /* if not supported */
-
 	s = p->txbuff;
-	/* calculation V0.1 : 'len' and 'txlen' samples off the end */
-	r = (p->tx_W - len - txlen) & ECHOCAN_BUFF_MASK;
+	/* use ID from driver to get pointer to end of TX data */
+	if ((id >> 16) == MISDN_TX_MAGIC)
+		r = (id - len) & ECHOCAN_BUFF_MASK;
+	else
+		r = (p->tx_W - len) & ECHOCAN_BUFF_MASK;
+
 	kernel_fpu_begin();
 	if (p->echostate & __ECHO_STATE_MUTE) {
 		/* Special stuff for training the echo can */

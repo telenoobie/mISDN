@@ -93,14 +93,14 @@ static void free(void *p)
 	dsp_cancel_free(p);
 }
 
-static void process_tx(void *p, u8 *data, int len)
+static u32 process_tx(void *p, u8 *data, int len)
 {
-	dsp_cancel_tx(p, data, len);
+	return dsp_cancel_tx(p, data, len);
 }
 
-static void process_rx(void *p, u8 *data, int len, unsigned int txlen)
+static void process_rx(void *p, u8 *data, int len, u32 id)
 {
-	dsp_cancel_rx(p, data, len, txlen);
+	dsp_cancel_rx(p, data, len, id);
 }
 
 static struct mISDN_dsp_element_arg args[] = {

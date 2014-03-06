@@ -1360,7 +1360,7 @@ dsp_cmx_send_member(struct dsp *dsp, int len, s32 *c, int members)
 	}
 	hh = mISDN_HEAD_P(nskb);
 	hh->prim = PH_DATA_REQ;
-	hh->id = 0;
+	hh->id = MISDN_ID_ANY;
 	dsp->last_tx = 1;
 
 	/* set pointers, indexes and stuff */
@@ -1582,7 +1582,7 @@ send_packet:
 	if (dsp->tx_data) {
 		if (tx_data_only) {
 			hh->prim = DL_DATA_REQ;
-			hh->id = 0;
+			hh->id = MISDN_ID_ANY;
 			/* queue and trigger */
 			skb_queue_tail(&dsp->sendq, nskb);
 			schedule_work(&dsp->workq);
@@ -1597,7 +1597,7 @@ send_packet:
 			} else {
 				thh = mISDN_HEAD_P(txskb);
 				thh->prim = DL_DATA_REQ;
-				thh->id = 0;
+				thh->id = MISDN_ID_ANY;
 				memcpy(skb_put(txskb, len), nskb->data + preload,
 				       len);
 				/* queue (trigger later) */
@@ -1612,8 +1612,8 @@ send_packet:
 		dsp_change_volume(nskb, dsp->tx_volume);
 	/* pipeline */
 	if (dsp->pipeline.inuse)
-		dsp_pipeline_process_tx(&dsp->pipeline, nskb->data,
-					nskb->len);
+		hh->id = dsp_pipeline_process_tx(&dsp->pipeline, nskb->data,
+			nskb->len);
 	/* crypt */
 	if (dsp->bf_enable)
 		dsp_bf_encrypt(dsp, nskb->data, nskb->len);
@@ -1940,7 +1940,7 @@ dsp_cmx_send(void *arg)
 				if (nskb) {
 					hh = mISDN_HEAD_P(nskb);
 					hh->prim = PH_DATA_REQ;
-					hh->id = 0;
+					hh->id = MISDN_ID_ANY;
 					skb_queue_tail(&dsp->sendq, nskb);
 					schedule_work(&dsp->workq);
 				}
@@ -1956,7 +1956,7 @@ dsp_cmx_send(void *arg)
 				if (nskb) {
 					hh = mISDN_HEAD_P(nskb);
 					hh->prim = PH_DATA_REQ;
-					hh->id = 0;
+					hh->id = MISDN_ID_ANY;
 					skb_queue_tail(&member->dsp->sendq, nskb);
 					schedule_work(&member->dsp->workq);
 				}
