@@ -106,3 +106,9 @@ config MISDN_ANALOG
         tristate "Support for Analog FXS/FXO devices"
 	depends on MISDN
 
+config MISDN_NUVOTON
+	tristate "Support for Nuvoton FXS"
+	depends on MISDN_ANALOG
+	help
+	  Enable support for Nuvoton FXS. (description TBD)
+

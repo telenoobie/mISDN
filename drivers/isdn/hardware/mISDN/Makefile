@@ -17,10 +17,13 @@ obj-$(CONFIG_MISDN_NETJET) += netjet.o
 # chip modules
 obj-$(CONFIG_MISDN_IPAC) += mISDNipac.o
 obj-$(CONFIG_MISDN_ISAR) += mISDNisar.o
+# POTS
+obj-$(CONFIG_MISDN_NUVOTON) += mISDN_nuvoton.o
 
 # multi objects
 
 xhfc-objs := xhfc_su.o xhfc_pci2pi.o
+mISDN_nuvoton-objs := nuvoton.o prox/nx_linux.o prox/nxsincos.o prox/nxmath.o prox/nxapi.o prox/n68x386api.o
 
 # renamed modules
 
