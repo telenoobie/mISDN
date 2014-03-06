@@ -101,3 +101,8 @@ config MISDN_L1LOOP
         help
           Enable support for mISDN_l1loop to use virtual ISDN devices connected
           to virtual bus system
+
+config MISDN_ANALOG
+        tristate "Support for Analog FXS/FXO devices"
+	depends on MISDN
+

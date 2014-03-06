@@ -266,6 +266,8 @@ data_sock_release(struct socket *sock)
 	case ISDN_P_NT_S0:
 	case ISDN_P_TE_E1:
 	case ISDN_P_NT_E1:
+	case ISDN_P_FXO_POTS:
+	case ISDN_P_FXS_POTS:
 		if (sk->sk_state == MISDN_BOUND)
 			delete_channel(&_pms(sk)->ch);
 		else
@@ -535,6 +537,8 @@ data_sock_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 	case ISDN_P_NT_S0:
 	case ISDN_P_TE_E1:
 	case ISDN_P_NT_E1:
+	case ISDN_P_FXO_POTS:
+	case ISDN_P_FXS_POTS:
 		mISDN_sock_unlink(&data_sockets, sk);
 		err = connect_layer1(_pms(sk)->dev, &_pms(sk)->ch,
 				     sk->sk_protocol, maddr);
@@ -800,6 +804,8 @@ mISDN_sock_create(struct net *net, struct socket *sock, int proto, int kern)
 	case ISDN_P_NT_S0:
 	case ISDN_P_TE_E1:
 	case ISDN_P_NT_E1:
+	case ISDN_P_FXO_POTS:
+	case ISDN_P_FXS_POTS:
 	case ISDN_P_LAPD_TE:
 	case ISDN_P_LAPD_NT:
 	case ISDN_P_B_RAW:

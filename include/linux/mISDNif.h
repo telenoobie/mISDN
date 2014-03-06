@@ -158,6 +158,22 @@
 #define HFC_VOL_CHANGE_RX	0x2602
 #define HFC_SPL_LOOP_ON		0x2603
 #define HFC_SPL_LOOP_OFF	0x2604
+
+/* PH_CONTROL types for POTS (control channel) */
+/* KEY PULSE IS 0x20XX  XX "0"..."9", "*" (KP-11), "#" (KP-12),
+ * "A" (KP-13)... */
+#define POTS_KP_VAL		0x3000
+#define POTS_KP_MASK		0x007F
+#define POTS_METERING_PULSE	0x3100
+#define POTS_OFF_HOOK		0x3110
+#define POTS_ON_HOOK		0x3111
+#define POTS_HOOK_FLASH		0x3112
+#define POTS_EARTH_KEY		0x3120
+#define POTS_RING_ON		0x3130 /* followed by CID */
+#define POTS_RING_OFF		0x3131
+#define POTS_CW_ON		0x3140 /* followed by CID */
+#define POTS_CW_OFF		0x3141
+
 /* for T30 FAX and analog modem */
 #define HW_MOD_FRM		0x4000
 #define HW_MOD_FRH		0x4001
@@ -219,14 +235,21 @@
 #define ISDN_P_NT_E1  		0x04
 #define ISDN_P_TE_UP0		0x05
 #define ISDN_P_NT_UP0		0x06
+#define ISDN_P_FXO_POTS		0x07
+#define ISDN_P_FXS_POTS		0x08
 
 #define IS_ISDN_P_TE(p) ((p == ISDN_P_TE_S0) || (p == ISDN_P_TE_E1) || \
-				(p == ISDN_P_TE_UP0) || (p == ISDN_P_LAPD_TE))
+				(p == ISDN_P_TE_UP0) || \
+				(p == ISDN_P_LAPD_TE) || \
+				(p == ISDN_P_FXO_POTS))
 #define IS_ISDN_P_NT(p) ((p == ISDN_P_NT_S0) || (p == ISDN_P_NT_E1) || \
-				(p == ISDN_P_NT_UP0) || (p == ISDN_P_LAPD_NT))
+				(p == ISDN_P_NT_UP0) || \
+				(p == ISDN_P_LAPD_NT) || \
+				(p == ISDN_P_FXS_POTS))
 #define IS_ISDN_P_S0(p) ((p == ISDN_P_TE_S0) || (p == ISDN_P_NT_S0))
 #define IS_ISDN_P_E1(p) ((p == ISDN_P_TE_E1) || (p == ISDN_P_NT_E1))
 #define IS_ISDN_P_UP0(p) ((p == ISDN_P_TE_UP0) || (p == ISDN_P_NT_UP0))
+#define IS_ISDN_P_POTS(p) ((p == ISDN_P_FXO_POTS) || (p == ISDN_P_FXS_POTS))
 
 
 #define ISDN_P_LAPD_TE		0x10

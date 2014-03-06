@@ -434,6 +434,8 @@ connect_layer1(struct mISDNdevice *dev, struct mISDNchannel *ch,
 	case ISDN_P_NT_E1:
 	case ISDN_P_TE_S0:
 	case ISDN_P_TE_E1:
+	case ISDN_P_FXS_POTS:
+	case ISDN_P_FXO_POTS:
 		ch->recv = mISDN_queue_message;
 		ch->peer = &dev->D.st->own;
 		ch->st = dev->D.st;
@@ -585,6 +587,8 @@ delete_channel(struct mISDNchannel *ch)
 	case ISDN_P_TE_S0:
 	case ISDN_P_NT_E1:
 	case ISDN_P_TE_E1:
+	case ISDN_P_FXS_POTS:
+	case ISDN_P_FXO_POTS:
 		write_lock_bh(&ch->st->l1sock.lock);
 		sk_del_node_init(&msk->sk);
 		write_unlock_bh(&ch->st->l1sock.lock);
